@@ -13,7 +13,7 @@
 | Frontend Next.js standalone | `127.0.0.1:3001` |
 | PostgreSQL | отдельный кластер `thai`, `127.0.0.1:5433` |
 | База / новый пользователь БД | `thai_crm` / `thai_crm_app` |
-| Схема / ревизия | `public`, `thai_0021`, таблица `alembic_version_thai` |
+| Схема / ревизия | `public`, `thai_0022`, таблица `alembic_version_thai` |
 | Учёт | THB, себестоимость и прибыль USDT, Asia/Bangkok |
 
 Существующие PostgreSQL на **5432**, базу, пользователя, бота, Nginx vhost и
@@ -198,7 +198,7 @@ python3.12 -m venv .venv
 
 Источники схемы: `db_asyncpg/thai_migrations/versions` и замороженные SQL в
 `db_asyncpg/thai_migrations/sql`. Текущая цепочка — **21 миграция**,
-`thai_0001` → `thai_0021`. Читаемый итоговый снимок — `db_asyncpg/schema.sql`.
+`thai_0001` → `thai_0022`. Читаемый итоговый снимок — `db_asyncpg/schema.sql`.
 Проверка: [SCHEMA_VERIFICATION.md](thai/SCHEMA_VERIFICATION.md).
 Российская цепочка и её снимок удалены. `architecture/thai/schema_draft.sql` —
 архитектурный черновик, для установки его не использовать.
@@ -213,7 +213,7 @@ python3.12 -m venv .venv
 psql -X -h 127.0.0.1 -p 5433 -U thai_crm_app -d thai_crm -W -v ON_ERROR_STOP=1 -f deploy/thai/verify_initial_database.sql
 ```
 
-- [ ] Status показывает `thai`, `thai_0021`, `thai_crm`, порт **5433**.
+- [ ] Status показывает `thai`, `thai_0022`, `thai_crm`, порт **5433**.
 - [ ] `verify_initial_database.sql` завершился без ошибки: ноль клиентов,
   денежных операций, вкладов, расходов и остатков; 8 валютных инструментов
   и 8 кассовых счетов, одна безналичная касса.

@@ -330,7 +330,7 @@ async def test_expenses_api_decimal_validation_and_roles(finance):
             )
         ).status_code == 422
     await finance["pool"].execute(
-        "DELETE FROM user_roles WHERE user_id=$1 AND role='owner'", finance["actor"]
+        "WITH removed AS (DELETE FROM user_roles WHERE user_id=$1 AND role='owner') UPDATE user_roles SET role='accountant' WHERE user_id=$1 AND role='manager'", finance["actor"]
     )
     await finance["app"].expenses.close(
         key="manager-close", actor_id=finance["actor"], period=PERIOD, effective_at=INSTANT
@@ -493,7 +493,7 @@ async def test_expense_revision_scope_permissions_and_stale_later_snapshot(finan
             finance, key="wrong-month", amount="50", day=date(2026, 12, 1), revision_id=revision
         )
     await finance["pool"].execute(
-        "DELETE FROM user_roles WHERE user_id=$1 AND role='owner'", finance["actor"]
+        "WITH removed AS (DELETE FROM user_roles WHERE user_id=$1 AND role='owner') UPDATE user_roles SET role='accountant' WHERE user_id=$1 AND role='manager'", finance["actor"]
     )
     with pytest.raises(PermissionDenied):
         await pay(finance, key="no-right", amount="50", revision_id=revision)

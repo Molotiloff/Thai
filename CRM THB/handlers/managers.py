@@ -9,7 +9,7 @@ from services.admin_client import ManagerAdminService
 class ManagersHandler:
     """
     /mgr — управление менеджерами.
-    Доступ: только в одном админском чате (admin_chat_id). Любой участник этого чата.
+    Доступ: админский чат и право access.manage (проверяется сервисом).
     """
     def __init__(self, service: ManagerAdminService, admin_chat_id: int | None, *, authorize=None) -> None:
         self.service = service

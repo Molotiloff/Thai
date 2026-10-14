@@ -243,12 +243,12 @@ async def test_capital_document_failure_rolls_back_journal_and_cash(finance, inv
     assert await balance(finance, 'USDT') == (0, 0)
 
 
-async def test_manager_cannot_change_investor_terms(finance, investor):
-    await finance['pool'].execute("DELETE FROM user_roles WHERE user_id=$1 AND role='owner'", finance['actor'])
+async def test_accountant_cannot_change_investor_terms(finance, investor):
+    await finance['pool'].execute("WITH removed AS (DELETE FROM user_roles WHERE user_id=$1 AND role='owner') UPDATE user_roles SET role='accountant' WHERE user_id=$1 AND role='manager'", finance['actor'])
     with pytest.raises(PermissionDenied):
         await finance['app'].capital.change_term(key='forbidden', actor_id=finance['actor'], agreement_id=investor,
             valid_from=date(2026, 11, 1), effective_at=NOW, monthly_interest_percent=Decimal(3), reason='No rights')
-    # A manager is still allowed to accept a contribution under existing terms.
+    # An accountant is still allowed to accept a contribution under existing terms.
     await contribute(finance, investor)
 
 

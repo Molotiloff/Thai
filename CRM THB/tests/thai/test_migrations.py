@@ -51,7 +51,7 @@ async def finish(db, operation):
 
 async def test_seed_is_new_business_only(thai_connection):
     db = thai_connection
-    assert await db.fetchval("SELECT version_num FROM alembic_version_thai") == "thai_0021"
+    assert await db.fetchval("SELECT version_num FROM alembic_version_thai") == "thai_0022"
     assert await db.fetchrow("""
         SELECT family,accounting_currency,operational_currency,business_timezone FROM crm_schema_identity
     """) == ("thai", "USDT", "THB", "Asia/Bangkok")
@@ -80,7 +80,7 @@ async def test_repeat_upgrade_does_not_seed_twice(thai_database_url, thai_connec
     assert await thai_connection.fetchval("SELECT count(*) FROM parties") == 5
     status = await AlembicMigrator(thai_database_url, schema="thai").status()
     assert status["schema"] == "thai"
-    assert status["revision"] == "thai_0021"
+    assert status["revision"] == "thai_0022"
     assert status["database"].startswith("crm_thai_test_")
     assert set(status) == {"schema", "revision", "database", "port"}
 
@@ -272,7 +272,7 @@ def test_migration_tree_is_independent():
     migrator = AlembicMigrator("postgresql://unused/unused", schema="thai")
     script = ScriptDirectory.from_config(migrator._build_config())
     revisions = list(script.walk_revisions())
-    assert [r.revision for r in revisions] == [f"thai_{n:04d}" for n in range(21, 0, -1)]
+    assert [r.revision for r in revisions] == [f"thai_{n:04d}" for n in range(22, 0, -1)]
     assert all("thai_migrations" in r.path for r in revisions)
 
 
@@ -354,7 +354,7 @@ async def test_direct_alembic_uses_thai_file_despite_russian_environment(tmp_pat
         await asyncio.to_thread(command.upgrade, config, "head")
         db = await asyncpg.connect(url)
         try:
-            assert await db.fetchval("SELECT version_num FROM alembic_version_thai") == "thai_0021"
+            assert await db.fetchval("SELECT version_num FROM alembic_version_thai") == "thai_0022"
             assert await db.fetchval("SELECT to_regclass('public.alembic_version')") is None
         finally:
             await db.close()

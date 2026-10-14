@@ -92,3 +92,36 @@ async def test_oidc_missing_config_is_service_unavailable(finance, configured):
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
         assert (await http.post("/api/v1/auth/telegram/oidc", json=PAYLOAD)).status_code == 503
+
+
+async def test_mgr_grants_full_crm_access_and_revokes_existing_session(finance, monkeypatch):
+    async def exchange(**kwargs):
+        return 777
+
+    monkeypatch.setattr(thai_auth, 'exchange_telegram_oidc_code', exchange)
+    container = finance['app']
+    app = create_thai_finance_api(container=container, jwt_secret='x' * 32, oidc_config=config())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as http:
+        assert (await http.post('/api/v1/auth/telegram/oidc', json=PAYLOAD)).status_code == 403
+        await container.manager_admin.handle_command('/mgr + 777 Staff', actor_id=finance['actor'], key='mgr-add')
+        login = await http.post('/api/v1/auth/telegram/oidc', json=PAYLOAD)
+        assert login.status_code == 200
+        headers = {'Authorization': 'Bearer ' + login.json()['access_token']}
+        session = await http.get('/api/v1/session', headers=headers)
+        assert session.status_code == 200
+        user = session.json()
+        assert user['roles'] == ['manager']
+        admin_permissions = {row['permission'] for row in await finance['pool'].fetch(
+            "SELECT permission FROM role_permissions WHERE role='admin'")}
+        assert admin_permissions <= set(user['permissions'])
+        assert {'terms.manage', 'period.revise', 'access.manage', 'cash.execute'} <= set(user['permissions'])
+        payload = {'idempotency_key': 'staff-group', 'code': 'staff_test', 'name': 'Staff group'}
+        assert (await http.post('/api/v1/client-groups', json=payload, headers=headers)).status_code == 200
+        await container.manager_admin.handle_command('/mgr - 777', actor_id=finance['actor'], key='mgr-remove')
+        assert (await http.get('/api/v1/session', headers=headers)).status_code == 403
+        assert (await http.post('/api/v1/client-groups', json={**payload, 'idempotency_key': 'revoked'}, headers=headers)).status_code == 403
+        assert (await http.post('/api/v1/auth/telegram/oidc', json=PAYLOAD)).status_code == 403
+        await container.manager_admin.handle_command('/mgr + 777 Staff', actor_id=finance['actor'], key='mgr-readd')
+        await finance['pool'].execute('UPDATE users SET is_active=false WHERE telegram_user_id=777')
+        assert (await http.get('/api/v1/session', headers=headers)).status_code == 401
+        assert (await http.post('/api/v1/auth/telegram/oidc', json=PAYLOAD)).status_code == 403

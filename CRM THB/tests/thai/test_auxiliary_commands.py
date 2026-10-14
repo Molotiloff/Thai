@@ -249,8 +249,7 @@ async def test_manager_command_audit_roles_retry_and_revocation(finance):
         await feed(dp,bot,message('/mgr + 777 <Staff>',chat=-900,mid=1))
         assert await finance['pool'].fetchval("SELECT count(*) FROM client_directory_events WHERE kind='manager_change'")==1
         await feed(dp,bot,message('/mgr + 888 Evil',chat=-900,user=777,mid=2))
-        assert 'Недостаточно прав' in session.sent[-1].text
-        assert not await app.client_queries.is_manager(888)
+        assert await app.client_queries.is_manager(888)
         await feed(dp,bot,message('/mgr',chat=-900,mid=3))
         assert '777' in session.sent[-1].text
         await feed(dp,bot,message('/mgr - 777',chat=-123,mid=4))

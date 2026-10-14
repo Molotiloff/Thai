@@ -403,7 +403,7 @@ async def test_terms_permissions_payout_and_frozen_closure(finance):
             profit_revision_id=revision,
         )
     await finance["pool"].execute(
-        "DELETE FROM user_roles WHERE user_id=$1 AND role='owner'", finance["actor"]
+        "WITH removed AS (DELETE FROM user_roles WHERE user_id=$1 AND role='owner') UPDATE user_roles SET role='accountant' WHERE user_id=$1 AND role='manager'", finance["actor"]
     )
     with pytest.raises(PermissionDenied):
         await finance["app"].profit.set_terms(
