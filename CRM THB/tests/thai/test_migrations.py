@@ -358,3 +358,21 @@ async def test_direct_alembic_uses_thai_file_despite_russian_environment(tmp_pat
             assert await db.fetchval("SELECT to_regclass('public.alembic_version')") is None
         finally:
             await db.close()
+
+
+@pytest.mark.parametrize("locale", ["C", "en_US.UTF-8"])
+async def test_release_initial_database_check_is_independent_of_locale(locale):
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "deploy/thai/verify_initial_database.sql").read_text()
+    sql = "\n".join(line for line in sql.splitlines() if not line.startswith("\\"))
+    with disposable_thai_database("crm_thai_release_locale", locale=locale) as url:
+        await AlembicMigrator(url, schema="thai").upgrade_to_head()
+        db = await asyncpg.connect(url)
+        try:
+            # Verify the test really created the requested locale, not just a new name.
+            assert await db.fetchval(
+                "SELECT datcollate FROM pg_database WHERE datname=current_database()"
+            ) == locale
+            await db.execute(sql)
+        finally:
+            await db.close()

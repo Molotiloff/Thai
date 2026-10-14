@@ -21,7 +21,8 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Unexpected accounting identity';
     END IF;
-    IF (SELECT array_agg(code::TEXT ORDER BY code) FROM instruments)
+    -- Currency codes use a fixed byte order, independent of the cluster locale.
+    IF (SELECT array_agg(code::TEXT ORDER BY code COLLATE "C") FROM instruments)
         IS DISTINCT FROM ARRAY['EUR','EUR500','RUB','THB_BANK','THB_CASH','USDT','USD_BL','USD_WH']::TEXT[]
         OR (SELECT count(*) FROM cash_accounts) <> 8
         OR (SELECT count(*) FROM instruments WHERE storage_kind='bank') <> 1 THEN
@@ -47,6 +48,6 @@ END $$;
 SELECT current_database() AS database, current_user AS db_user, inet_server_port() AS port;
 SELECT version_num AS revision FROM alembic_version_thai;
 SELECT family, accounting_currency, operational_currency, business_timezone FROM crm_schema_identity;
-SELECT code FROM instruments ORDER BY code;
+SELECT code FROM instruments ORDER BY code COLLATE "C";
 SELECT 'Initial Thai database verified; no financial or client data imported.' AS result;
 COMMIT;
