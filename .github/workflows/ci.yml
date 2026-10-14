@@ -20,10 +20,11 @@ jobs:
           POSTGRES_USER: thai_test
           POSTGRES_PASSWORD: thai_test_ci
           POSTGRES_DB: thai_ci
+          PGPORT: "5433"
         ports:
-          - 5433:5432
+          - 5433:5433
         options: >-
-          --health-cmd "pg_isready -U thai_test -d thai_ci"
+          --health-cmd "pg_isready -p 5433 -U thai_test -d thai_ci"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -39,6 +40,10 @@ jobs:
             CRM THB/requirements.txt
             CRM THB/requirements-dev.txt
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Check isolated PostgreSQL server
+        env:
+          PGPASSWORD: thai_test_ci
+        run: psql -X -h 127.0.0.1 -p 5433 -U thai_test -d thai_ci -v ON_ERROR_STOP=1 -c "SELECT version(), inet_server_port();"
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - run: ruff check .
       - run: cp .env.thai.example .env.thai

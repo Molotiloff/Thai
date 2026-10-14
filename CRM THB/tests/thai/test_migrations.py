@@ -65,6 +65,10 @@ async def test_seed_is_new_business_only(thai_connection):
         assert await db.fetchval(f"SELECT count(*) FROM {table}") == 0
     assert await db.fetchval("SELECT count(*) FROM users WHERE is_active OR telegram_user_id IS NOT NULL") == 0
     assert await db.fetchval("SELECT count(*) FROM capital_interest_terms WHERE monthly_interest_percent<>0") == 0
+    bootstrap_actor = await db.fetchval("SELECT id FROM users WHERE display_name='System bootstrap'")
+    assert bootstrap_actor is not None
+    assert await db.fetchval("SELECT count(*) FROM profit_share_terms WHERE created_by<>$1", bootstrap_actor) == 0
+    assert await db.fetchval("SELECT count(*) FROM capital_interest_terms WHERE created_by<>$1", bootstrap_actor) == 0
     assert await db.fetchval("SELECT sum(balance) FROM posted_account_balances") == 0
     assert await db.fetchval("SELECT value FROM crm_settings WHERE key='loss_policy'") == '"report_only"'
 

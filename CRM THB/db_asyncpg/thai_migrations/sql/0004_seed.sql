@@ -31,7 +31,7 @@ INSERT INTO crm_settings(key,value) VALUES
     ('capital_return_policy','"same_currency_same_form_except_thb"'),
     ('investor_shortfall_policy','"manager_decision"');
 DO $$
-DECLARE business BIGINT; sky BIGINT; pe BIGINT; daniyar BIGINT; system_user BIGINT;
+DECLARE business BIGINT; sky BIGINT; pe BIGINT; daniyar BIGINT; bootstrap_actor_id BIGINT;
         business_day DATE := (now() AT TIME ZONE 'Asia/Bangkok')::date;
         investor BIGINT; agreement BIGINT;
 BEGIN
@@ -44,14 +44,14 @@ BEGIN
     INSERT INTO party_roles(party_id,role) VALUES
         (sky,'owner'),(sky,'investor'),(pe,'owner'),(pe,'investor');
     -- FK author of initial terms only: inactive, no Telegram ID and no access roles.
-    INSERT INTO users(display_name,is_active) VALUES ('System bootstrap',FALSE) RETURNING id INTO system_user;
+    INSERT INTO users(display_name,is_active) VALUES ('System bootstrap',FALSE) RETURNING id INTO bootstrap_actor_id;
     INSERT INTO profit_share_terms(valid_from,skyex_percent,pe_percent,created_by)
-        VALUES (business_day,50,50,system_user);
+        VALUES (business_day,50,50,bootstrap_actor_id);
     FOREACH investor IN ARRAY ARRAY[sky,pe] LOOP
         INSERT INTO capital_agreements(investor_party_id,principal_kind,opened_on)
             VALUES (investor,'owner_equity',business_day) RETURNING id INTO agreement;
         INSERT INTO capital_interest_terms(agreement_id,monthly_interest_percent,valid_from,created_by)
-            VALUES (agreement,0,business_day,system_user);
+            VALUES (agreement,0,business_day,bootstrap_actor_id);
     END LOOP;
 END $$;
 INSERT INTO ledger_accounts(code,account_class,purpose,normal_side,currency_code,instrument_code)
