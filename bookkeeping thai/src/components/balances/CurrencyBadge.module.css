@@ -1,0 +1,20 @@
+/* Фирменные цвета валют — одинаковы в обеих темах */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  color: #fff;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.usdt { background: #26a17b; }
+.rub { background: #3b82f6; }
+.usd { background: #16a34a; }
+.eur { background: #2563eb; }
+.cny { background: #dc2626; }
+.btc { background: #f7931a; }
+.eth { background: #627eea; }
+.other { background: #64748b; }

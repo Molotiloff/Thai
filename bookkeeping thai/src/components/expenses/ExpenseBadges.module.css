@@ -1,0 +1,52 @@
+/* Категория: иконка в цветном квадрате + название */
+.category {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.categoryIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  flex-shrink: 0;
+}
+
+.catRed { background: var(--status-alert-bg); color: var(--status-alert-fg); }
+.catAmber { background: var(--status-waiting-bg); color: var(--status-waiting-fg); }
+.catGreen { background: var(--status-done-bg); color: var(--status-done-fg); }
+.catSlate { background: var(--att-dayoff-bg); color: var(--text-secondary); }
+.catPurple { background: var(--kpi-purple-bg); color: var(--kpi-purple-fg); }
+.catBlue { background: var(--status-check-bg); color: var(--status-check-fg); }
+
+/* Город: select-подобный pill с шевроном */
+.city {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px 4px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cityChevron {
+  opacity: 0.6;
+}
+
+.cityGreen { background: var(--status-done-bg); color: var(--status-done-fg); }
+.cityBlue { background: var(--status-check-bg); color: var(--status-check-fg); }
+.citySlate { background: var(--att-dayoff-bg); color: var(--text-secondary); }
+.cityPurple { background: var(--kpi-purple-bg); color: var(--kpi-purple-fg); }
+
+.cityEmpty {
+  color: var(--text-muted);
+}

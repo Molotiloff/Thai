@@ -1,0 +1,102 @@
+# Operating system and editors
+.DS_Store
+.AppleDouble
+._*
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# Local environment files; commit sanitized templates only
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+!.env.*.example
+!*.env.example
+
+# Credentials, private keys and local authentication state
+secrets/
+credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*credentials*.json
+*service-account*.json
+exchange-bot-*.json
+storage-state*.json
+storageState*.json
+
+# Python dependencies, bytecode and tool caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+*.egg-info/
+.eggs/
+htmlcov/
+.coverage
+.coverage.*
+
+# JavaScript dependencies and build output
+node_modules/
+.pnpm-store/
+.next/
+out/
+build/
+dist/
+coverage/
+.vercel/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Runtime, archives, browser sessions and generated reports
+.runtime/
+message_archive_data/
+.playwright-cli/
+playwright-report/
+test-results/
+*.log
+*.pid
+*.sock
+
+# Database copies and business exports; schema/migration SQL stays tracked
+dumps/
+backups/
+*.dump
+*.backup
+*.bak
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.xlsx
+*.xls
+*.xlsm
+*.ods
+*.csv
+*.tsv
+~$*
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+
+# Local files inherited from the RF project
+/CRM THB/*.pdf

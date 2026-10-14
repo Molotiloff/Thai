@@ -1,0 +1,71 @@
+name: Thai CRM CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 'CRM THB'
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: thai_test
+          POSTGRES_PASSWORD: thai_test_ci
+          POSTGRES_DB: thai_ci
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U thai_test -d thai_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      THAI_TEST_DATABASE_URL: postgresql://thai_test:thai_test_ci@127.0.0.1:5433/thai_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            CRM THB/requirements.txt
+            CRM THB/requirements-dev.txt
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: ruff check .
+      - run: cp .env.thai.example .env.thai
+      - run: python -m pytest tests/unit tests/thai tests/design tests/message_archive -q --tb=short
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: 'bookkeeping thai'
+    env:
+      THAI_API_BASE_URL: http://127.0.0.1:8001/api/v1
+      THAI_FRONTEND_ORIGIN: https://thai-crm.work.gd
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: 'bookkeeping thai/pnpm-lock.yaml'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm exec eslint . --max-warnings 0
+      - run: pnpm run test:forms
+      - run: pnpm run test:telegram-login
+      - run: pnpm run build

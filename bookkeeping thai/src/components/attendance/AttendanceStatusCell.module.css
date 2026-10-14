@@ -1,0 +1,29 @@
+.cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+button.cell:hover {
+  transform: scale(1.04);
+  background-color: var(--surface-hover);
+}
+
+.work { color: var(--att-work-fg); background: var(--att-work-bg); }
+.absent { color: var(--att-absent-fg); background: var(--att-absent-bg); }
+.flight { color: var(--att-flight-fg); background: var(--att-flight-bg); }
+.remote { color: var(--att-remote-fg); background: var(--att-remote-bg); }
+
+button.work:hover { background-color: var(--att-work-bg); }
+button.absent:hover { background-color: var(--att-absent-bg); }
+button.flight:hover { background-color: var(--att-flight-bg); }
+button.remote:hover { background-color: var(--att-remote-bg); }
+
+.empty {
+  color: var(--text-muted);
+  opacity: 0.45;
+}

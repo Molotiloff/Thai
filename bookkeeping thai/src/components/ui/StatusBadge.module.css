@@ -1,0 +1,43 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.fixed {
+  background: var(--status-fixed-bg);
+  color: var(--status-fixed-fg);
+}
+
+.waiting {
+  background: var(--status-waiting-bg);
+  color: var(--status-waiting-fg);
+}
+
+.check {
+  background: var(--status-check-bg);
+  color: var(--status-check-fg);
+}
+
+.done {
+  background: var(--status-done-bg);
+  color: var(--status-done-fg);
+}
+
+.alert {
+  background: var(--status-alert-bg);
+  color: var(--status-alert-fg);
+}

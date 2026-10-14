@@ -1,0 +1,35 @@
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.badgeUp {
+  color: var(--delta-up);
+  background: var(--delta-up-bg);
+}
+
+.badgeDown {
+  color: var(--delta-down);
+  background: var(--delta-down-bg);
+}
+
+.track {
+  display: inline-block;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--chart-grid);
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}

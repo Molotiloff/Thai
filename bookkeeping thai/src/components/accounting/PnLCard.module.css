@@ -1,0 +1,81 @@
+.pnl {
+  display: flex;
+  flex-direction: column;
+}
+
+.rows {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.value {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.positive {
+  color: var(--delta-up);
+}
+
+.negative {
+  color: var(--delta-down);
+}
+
+.total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 2px 2px;
+}
+
+.totalLabel {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.totalValue {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.exportButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 13px;
+  font-weight: 600;
+  transition: filter 0.15s ease;
+}
+
+.exportButton:hover {
+  filter: brightness(1.08);
+}

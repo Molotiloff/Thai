@@ -1,0 +1,240 @@
+from __future__ import annotations
+
+from collections.abc import Iterable
+
+from aiogram import Bot, F, Router
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, Message
+
+from db_asyncpg.ports.administration import ManagerRepositoryPort
+from services.exchange import (
+    AcceptShortCommand,
+    AcceptShortService,
+    CancelExchangeParams,
+    ExchangeReplyContext,
+)
+from telegram_adapters import AiogramCallbackReplier, AiogramMessageReplier, AiogramMessenger
+from telegram_adapters.auth import (
+    require_manager_or_admin_callback,
+    require_manager_or_admin_message,
+)
+from telegram_adapters.message_context import get_chat_name
+
+
+def _is_forwarded_message(message: Message) -> bool:
+    return any(
+        getattr(message, attr, None) is not None
+        for attr in (
+            "forward_origin",
+            "forward_from",
+            "forward_from_chat",
+            "forward_sender_name",
+            "forward_signature",
+            "forward_date",
+            "forward_from_message_id",
+        )
+    )
+
+
+class AcceptShortHandler:
+    """
+    /пд|/пе|/пт|/пр|/пб|/пбат <recv_amount_expr> <од|ое|от|ор|об|обат> <pay_amount_expr> [комментарий]
+
+    Принимаем слева — СПИСЫВАЕМ у клиента; отдаём справа — ЗАЧИСЛЯЕМ клиенту.
+    Если команда отправлена ответом на карточку бота — редактируем заявку.
+    """
+    def __init__(
+            self,
+            repo: ManagerRepositoryPort,
+            service: AcceptShortService,
+            admin_chat_ids: Iterable[int] | None = None,
+            admin_user_ids: Iterable[int] | None = None,
+            *,
+            ignore_chat_ids: Iterable[int] | None = None,
+    ) -> None:
+        self.repo = repo
+        self.service = service
+        self.admin_chat_ids = set(admin_chat_ids or [])
+        self.admin_user_ids = set(admin_user_ids or [])
+        self.ignore_chat_ids = set(ignore_chat_ids or set())
+        self.router = Router()
+        self._register()
+
+    async def _cmd_accept_short(self, message: Message) -> None:
+        # Игнорируем в "шумных" чатах
+        if self.ignore_chat_ids and message.chat and message.chat.id in self.ignore_chat_ids:
+            return
+
+        # Не реагируем на пересланные партнерские сообщения, даже если их переслал наш менеджер.
+        if _is_forwarded_message(message):
+            return
+
+        # доступ
+        if not await require_manager_or_admin_message(
+                self.repo, message,
+                admin_chat_ids=self.admin_chat_ids,
+                admin_user_ids=self.admin_user_ids,
+        ):
+            return
+        bot = message.bot
+        if not isinstance(bot, Bot):
+            await message.answer("Бот недоступен.")
+            return
+        try:
+            reply_message = getattr(message, "reply_to_message", None)
+            reply = None
+            if reply_message and (reply_message.text or ""):
+                authored_by_bot = bool(
+                    reply_message.from_user
+                    and reply_message.from_user.id == bot.id
+                )
+                reply = ExchangeReplyContext(
+                    message_id=reply_message.message_id,
+                    text=reply_message.text or "",
+                    authored_by_bot=authored_by_bot,
+                )
+            await self.service.execute_command(
+                AcceptShortCommand(
+                    chat_id=message.chat.id,
+                    chat_name=get_chat_name(message),
+                    message_id=message.message_id,
+                    text=message.text or "",
+                    actor_name=_actor_name(message),
+                    reply=reply,
+                ),
+                messenger=AiogramMessenger(bot),
+                replier=AiogramMessageReplier(message),
+            )
+        except ValueError as exc:
+            await message.answer(str(exc))
+
+    # ====== КОЛЛБЭК ОТМЕНЫ ЗАЯВКИ (делегируем в базовый класс) ======
+    async def _cb_cancel(self, cq: CallbackQuery) -> None:
+        if not await require_manager_or_admin_callback(
+                self.repo, cq,
+                admin_chat_ids=self.admin_chat_ids,
+                admin_user_ids=self.admin_user_ids,
+        ):
+            return
+        message = cq.message
+        if not isinstance(message, Message) or not message.text:
+            await cq.answer("Нет сообщения", show_alert=True)
+            return
+        parts = (cq.data or "").split(":")
+        request_id = parts[1].strip() if len(parts) >= 2 else ""
+        if not request_id:
+            await cq.answer("Некорректные данные", show_alert=True)
+            return
+        table_request_id = parts[2].strip() if len(parts) >= 3 else None
+        is_request_chat = self.service.is_request_chat_origin(message.chat.id)
+        await self.service.cancel_exchange_request.execute_core(
+            CancelExchangeParams(
+                chat_id=message.chat.id,
+                chat_name=get_chat_name(message),
+                card_message_id=message.message_id,
+                card_text=message.text,
+                req_id=request_id,
+                table_req_id_hint=table_request_id,
+                recv_is_deposit=is_request_chat,
+                pay_is_withdraw=is_request_chat,
+            ),
+            messenger=AiogramMessenger(cq.bot),
+            replier=AiogramCallbackReplier(cq),
+        )
+
+    def _register(self) -> None:
+        self.router.message.register(self._cmd_accept_short, Command("пд"))
+        self.router.message.register(self._cmd_accept_short, Command("пе"))
+        self.router.message.register(self._cmd_accept_short, Command("пт"))
+        self.router.message.register(self._cmd_accept_short, Command("пр"))
+        self.router.message.register(self._cmd_accept_short, Command("пб"))
+        self.router.message.register(self._cmd_accept_short, Command("пбат"))
+        self.router.message.register(self._cmd_accept_short, Command("пп"))
+        self.router.message.register(self._cmd_accept_short, Command("прмск"))
+        self.router.message.register(self._cmd_accept_short, Command("прспб"))
+        self.router.message.register(self._cmd_accept_short, Command("прпер"))
+        self.router.message.register(
+            self._cmd_accept_short,
+            F.text.regexp(r"(?iu)^/(пбат|пд|пе|пт|пр|пб|прмск|прспб|прпер|пп)(?:@\w+)?\b"),
+        )
+        self.router.callback_query.register(self._cb_cancel, F.data.startswith("req_cancel:"))
+
+    @staticmethod
+    def register_accounting(router, commands):
+        async def cancel(callback):
+            from domain.finance.models import FinanceError
+            from services.finance.outbox import DeliveryError
+            if not isinstance(callback.message, Message):
+                await callback.answer('Исходная карточка недоступна',show_alert=True)
+                return
+            try:
+                result = await commands.cancel_exchange(telegram_user_id=callback.from_user.id,
+                    chat_id=callback.message.chat.id,message_id=callback.message.message_id,
+                    data=callback.data or '')
+                await commands.deliver_exchange_request(callback.bot,result['request_id'])
+            except (FinanceError,ValueError) as error:
+                await callback.answer(str(error)[:190],show_alert=True)
+                return
+            except DeliveryError:
+                await callback.answer('Заявка отменена. Карточка будет обновлена повторно.',show_alert=True)
+                return
+            await callback.answer('Заявка отменена')
+        router.callback_query.register(cancel,F.data.startswith('req_cancel:'))
+
+    @staticmethod
+    async def accounting_exchange(commands, message):
+        from domain.finance.models import FinanceError, InvalidPosting
+        from services.finance.outbox import DeliveryError
+        if _is_forwarded_message(message):
+            return
+        try:
+            reply = message.reply_to_message
+            if reply:
+                if not reply.from_user or reply.from_user.id!=message.bot.id:
+                    raise InvalidPosting('Чтобы изменить заявку, ответьте на оригинальную карточку БОТА')
+                result = await commands.edit_exchange(telegram_user_id=message.from_user.id,
+                    chat_id=message.chat.id,message_id=message.message_id,reply_message_id=reply.message_id,
+                    text=message.text,actor_name=_actor_name(message),effective_at=message.date)
+                request_id = result['request_id']
+            else:
+                await commands.execute(telegram_user_id=message.from_user.id,chat_id=message.chat.id,
+                    message_id=message.message_id,text=message.text,effective_at=message.date,
+                    chat_name=get_chat_name(message),actor_name=_actor_name(message))
+                request_id = await commands.exchange_by_command(message.chat.id,message.message_id)
+            await commands.deliver_exchange_request(message.bot,request_id)
+            if message.chat.id==commands.operations_chat_id:
+                return
+            summary = await commands.execute(telegram_user_id=message.from_user.id,chat_id=message.chat.id,
+                message_id=message.message_id,text='/дай',effective_at=message.date,chat_name=get_chat_name(message))
+            await message.reply(summary,**({'parse_mode':'HTML'} if summary.startswith('<code>') else {}))
+        except (FinanceError,ValueError) as error:
+            await message.answer(str(error))
+        except DeliveryError:
+            await message.answer('Заявка сохранена. Карточка будет обновлена повторно.')
+
+    @staticmethod
+    async def accounting_cancel_reply(commands, message):
+        from domain.finance.models import FinanceError
+        from services.finance.outbox import DeliveryError
+        reply = message.reply_to_message
+        if not reply or not reply.from_user or reply.from_user.id!=message.bot.id:
+            return False
+        try:
+            result = await commands.cancel_exchange_reply(telegram_user_id=message.from_user.id,
+                chat_id=message.chat.id,reply_message_id=reply.message_id)
+            if result is None:
+                return False
+            await commands.deliver_exchange_request(message.bot,result['request_id'])
+            await message.answer('Заявка отменена; история сохранена')
+        except FinanceError as error:
+            await message.answer(str(error))
+        except DeliveryError:
+            await message.answer('Заявка отменена. Карточка будет обновлена повторно.')
+        return True
+
+
+def _actor_name(message: Message) -> str:
+    user = message.from_user
+    if not user:
+        return "unknown"
+    return user.full_name or (f"@{user.username}" if user.username else f"id:{user.id}")

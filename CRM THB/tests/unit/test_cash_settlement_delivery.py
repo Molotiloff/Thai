@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+from handlers.wallets import WalletsHandler
+from services.accounting.cash_settlement_models import CashSettlementResult
+from services.wallets.models import ParsedCurrencyChange, WalletCommandResult
+from telegram_adapters import ChatLockRegistry
+from telegram_adapters.city_cash_transfer import (
+    send_cash_settlement_balance_to_client,
+    send_cash_settlement_evidence_to_client,
+)
+
+
+def _photo_message(*file_ids: str):
+    return SimpleNamespace(
+        photo=[SimpleNamespace(file_id=file_id) for file_id in file_ids]
+    )
+
+
+async def test_send_cash_settlement_photo_uses_largest_telegram_size() -> None:
+    bot = SimpleNamespace(
+        send_photo=AsyncMock(),
+        send_media_group=AsyncMock(),
+    )
+
+    chat_id = await send_cash_settlement_evidence_to_client(
+        repo=MagicMock(),
+        bot=bot,
+        evidence_messages=[_photo_message("small", "large")],
+        target_chat_id=-100500,
+        target_client_id=42,
+    )
+
+    assert chat_id == -100500
+    bot.send_photo.assert_awaited_once_with(chat_id=-100500, photo="large")
+    bot.send_media_group.assert_not_awaited()
+
+
+async def test_send_cash_settlement_album_preserves_all_photos() -> None:
+    bot = SimpleNamespace(
+        send_photo=AsyncMock(),
+        send_media_group=AsyncMock(),
+    )
+
+    await send_cash_settlement_evidence_to_client(
+        repo=MagicMock(),
+        bot=bot,
+        evidence_messages=[
+            _photo_message("first-small", "first"),
+            _photo_message("second-small", "second"),
+        ],
+        target_chat_id=-100500,
+        target_client_id=42,
+    )
+
+    bot.send_photo.assert_not_awaited()
+    bot.send_media_group.assert_awaited_once()
+    call = bot.send_media_group.await_args
+    assert call.kwargs["chat_id"] == -100500
+    assert [item.media for item in call.kwargs["media"]] == ["first", "second"]
+
+
+async def test_cash_request_command_sends_photo_and_names_client() -> None:
+    repo = MagicMock()
+    bot = SimpleNamespace(
+        id=999,
+        send_photo=AsyncMock(),
+        send_media_group=AsyncMock(),
+        send_message=AsyncMock(),
+    )
+    wallet_service = MagicMock()
+    wallet_service.parse_currency_change.return_value = ParsedCurrencyChange(
+        code="RUB",
+        expr="100000",
+        amount=Decimal("100000"),
+        tail="Б-2349823",
+        is_city_cash=True,
+        cash_city="екб",
+        client_name_for_transfer="Б-2349823",
+        extra_comment="",
+    )
+    interaction = SimpleNamespace(wallet_service=wallet_service)
+    cash_settlements = SimpleNamespace(
+        settle=AsyncMock(
+            return_value=CashSettlementResult(
+                settlement_id=5,
+                deal_id=7,
+                client_id=42,
+                client_chat_id=-100500,
+                client_name="SkyEx | Клиент",
+                request_id="Б-2349823",
+                request_kind="dep",
+                currency="RUB",
+                actual_qty=Decimal("100000"),
+                cash_transaction_id=8,
+                cash_balance=Decimal("799900"),
+                cash_precision=2,
+                client_transaction_id=9,
+                position_move_id=None,
+                repeated=False,
+                client_balance=Decimal("150000"),
+                client_precision=2,
+            )
+        )
+    )
+    handler = WalletsHandler(
+        repo=repo,
+        interaction_service=interaction,
+        city_cash_media_store=MagicMock(),
+        chat_locks=MagicMock(),
+        city_cash_chats={"екб": -700001},
+        cash_settlement_service=cash_settlements,
+    )
+    message = SimpleNamespace(
+        text=None,
+        caption="/руб 100000 Б-2349823",
+        chat=SimpleNamespace(id=-700001),
+        message_id=501,
+        media_group_id=None,
+        photo=[SimpleNamespace(file_id="small"), SimpleNamespace(file_id="receipt")],
+        from_user=SimpleNamespace(id=77),
+        bot=bot,
+        answer=AsyncMock(),
+    )
+
+    await handler._execute_currency_change(message)
+
+    bot.send_photo.assert_awaited_once_with(chat_id=-100500, photo="receipt")
+    bot.send_message.assert_awaited_once_with(
+        chat_id=-100500,
+        text="Запомнил. 100’000.00 rub\nБаланс: 150’000.00 rub",
+    )
+    assert message.answer.await_args_list == [
+        (("Заявка Б-2349823 проведена!\nКлиент: SkyEx | Клиент",), {}),
+        (("Запомнил. 100’000.00 rub\nБаланс: 799’900.00 rub",), {}),
+    ]
+
+
+async def test_send_cash_settlement_client_balance_for_withdrawal() -> None:
+    bot = SimpleNamespace(send_message=AsyncMock())
+
+    chat_id = await send_cash_settlement_balance_to_client(
+        repo=MagicMock(),
+        bot=bot,
+        target_chat_id=-100500,
+        target_client_id=42,
+        currency_code="RUB",
+        signed_amount=Decimal("-10000"),
+        balance=Decimal("90000"),
+        precision=2,
+    )
+
+    assert chat_id == -100500
+    bot.send_message.assert_awaited_once_with(
+        chat_id=-100500,
+        text="Запомнил. -10’000.00 rub\nБаланс: 90’000.00 rub",
+    )
+
+
+async def test_request_chat_accepts_regular_wallet_operation() -> None:
+    wallet_service = MagicMock()
+    wallet_service.parse_currency_change.return_value = ParsedCurrencyChange(
+        code="RUB",
+        expr="1000",
+        amount=Decimal("1000"),
+        tail="",
+        is_city_cash=False,
+        cash_city=None,
+        client_name_for_transfer="",
+        extra_comment="",
+    )
+    interaction = SimpleNamespace(
+        wallet_service=wallet_service,
+        build_currency_change_response=AsyncMock(
+            return_value=WalletCommandResult(
+                ok=True,
+                message_text="Запомнил. +1000 RUB",
+            )
+        ),
+    )
+    handler = WalletsHandler(
+        repo=MagicMock(),
+        interaction_service=interaction,
+        city_cash_media_store=MagicMock(),
+        chat_locks=ChatLockRegistry(),
+        admin_user_ids={77},
+    )
+    message = SimpleNamespace(
+        text="/руб 1000",
+        caption=None,
+        chat=SimpleNamespace(id=-777001, title="Чат заявок"),
+        message_id=501,
+        media_group_id=None,
+        photo=None,
+        reply_to_message=None,
+        from_user=SimpleNamespace(id=77),
+        bot=SimpleNamespace(id=999),
+        answer=AsyncMock(),
+    )
+
+    await handler._on_currency_change(message)
+
+    interaction.build_currency_change_response.assert_awaited_once()
+    message.answer.assert_awaited_once_with("Запомнил. +1000 RUB", reply_markup=None)

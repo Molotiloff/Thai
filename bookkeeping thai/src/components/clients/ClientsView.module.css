@@ -1,0 +1,25 @@
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+
+.gridNoPanel {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.filters {display:flex;gap:16px;flex-wrap:wrap;margin:0 0 16px;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);}
+.filters label {display:flex;gap:8px;align-items:center;font-size:13px;}
+.filters select {padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-primary);}
+.dialog::backdrop {background:rgb(0 0 0 / 60%);}
+
+.dialog {margin:auto;width:min(520px,100%);max-height:90vh;overflow:auto;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:16px;padding:24px;}
+.dialog header {display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+.dialog h2 {font-size:20px;}.dialog header button {background:none;color:inherit;font-size:26px;}

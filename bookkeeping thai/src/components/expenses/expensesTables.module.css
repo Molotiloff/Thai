@@ -1,0 +1,111 @@
+/* Общие стили таблиц расходов */
+
+.card {
+  background: var(--glass-bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-card), var(--glass-inset);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  overflow: hidden;
+  margin-bottom: 16px;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+.heading {
+  padding: 18px 20px 6px;
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table thead th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+th.firstHead {
+  padding-left: 20px;
+}
+
+th.lastHead {
+  padding-right: 20px;
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row td {
+  height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.15s ease;
+}
+
+.row:hover td {
+  background-color: var(--surface-hover);
+}
+
+td.firstCol {
+  padding-left: 20px;
+}
+
+td.lastCol {
+  padding-right: 20px;
+}
+
+.amount {
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.amountName {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.chevronCol {
+  width: 32px;
+  color: var(--text-muted);
+}
+
+.showMore {
+  display: inline-block;
+  margin: 12px 20px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  transition: color 0.15s ease;
+}
+
+.showMore:hover {
+  color: var(--accent-strong);
+}
+
+.emptyCell {
+  padding: 24px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}

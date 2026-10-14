@@ -1,0 +1,141 @@
+/*
+ * Дизайн-токены SkyEx CRM.
+ * Светлая тема — референс «Вариант 3», тёмная — «Вариант 2».
+ * Категориальная палитра графиков валидирована (CVD ≥ 12, контраст ≥ 3:1).
+ */
+
+:root,
+:root[data-theme='light'] {
+  /* Поверхности */
+  --bg: #f3f6fb;
+  --surface: #ffffff;
+  --surface-hover: #f7fafd;
+  --sidebar-bg: #ffffff;
+  --border: #e6ebf3;
+  --border-strong: #d7dfec;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 16px rgba(16, 24, 40, 0.05);
+
+  /* Текст */
+  --text-primary: #101828;
+  --text-secondary: #5b6b83;
+  --text-muted: #8a97ad;
+  --text-on-accent: #ffffff;
+
+  /* Акценты */
+  --accent: #2a78d6;
+  --accent-soft: #e8f1fd;
+  --accent-strong: #1d63c0;
+  --nav-active-bg: #e8f1fd;
+  --nav-active-text: #1d63c0;
+
+  /* Индикация роста/падения */
+  --delta-up: #0c7a43;
+  --delta-up-bg: #e4f6ec;
+  --delta-down: #c22f2f;
+  --delta-down-bg: #fdebea;
+
+  /* KPI-иконки */
+  --kpi-1-bg: #e8f1fd; --kpi-1-fg: #2a78d6;
+  --kpi-2-bg: #e5f4f6; --kpi-2-fg: #0e8a9c;
+  --kpi-3-bg: #e4f6ec; --kpi-3-fg: #0c7a43;
+  --kpi-4-bg: #fdf3e2; --kpi-4-fg: #b06f0a;
+  --kpi-purple-bg: #f1ecfd; --kpi-purple-fg: #7c3aed;
+
+  /* Статусы сделок */
+  --status-fixed-bg: #e5f4f6;    --status-fixed-fg: #0e7f90;
+  --status-waiting-bg: #fdf3e2;  --status-waiting-fg: #a3660a;
+  --status-check-bg: #e8f1fd;    --status-check-fg: #1d63c0;
+  --status-done-bg: #e4f6ec;     --status-done-fg: #0c7a43;
+  --status-alert-bg: #fdebea;    --status-alert-fg: #c22f2f;
+
+  /* Графики (палитра валидирована для light-поверхности #ffffff) */
+  --chart-line: #0f9d6a;
+  --chart-line-fill-from: rgba(15, 157, 106, 0.18);
+  --chart-line-fill-to: rgba(15, 157, 106, 0);
+  --chart-grid: #edf1f7;
+  --chart-axis: #8a97ad;
+  --series-usdt: #2a78d6;
+  --series-btc: #eb6834;
+  --series-eth: #0f9d6a;
+  --series-other: #6478d6;
+
+  --focus-ring: 0 0 0 3px rgba(42, 120, 214, 0.28);
+
+  /* Посещаемость: статусы календаря */
+  --att-work-fg: #16a34a;     --att-work-bg: #e4f6ec;
+  --att-absent-fg: #dc2626;   --att-absent-bg: #fdebea;
+  --att-flight-fg: #3b82f6;   --att-flight-bg: #e8f1fd;
+  --att-remote-fg: #d97706;   --att-remote-bg: #fdf3e2;
+  --att-dayoff-fg: #94a3b8;   --att-dayoff-bg: #f1f5f9;
+  --att-weekend: #dc2626;
+
+  /* Glass-эффект (в светлой теме поверхности непрозрачные) */
+  --glass-bg: var(--surface);
+  --glass-inset: inset 0 0 0 0 transparent;
+}
+
+:root[data-theme='dark'] {
+  /* Поверхности: глубокий navy, sidebar темнее фона */
+  --bg: #0d1424;
+  --surface: #131b2e;
+  --surface-hover: #182238;
+  --sidebar-bg: #0a101d;
+  --border: rgba(151, 165, 200, 0.14);
+  --border-strong: rgba(151, 165, 200, 0.24);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+
+  /* Текст — без чрезмерного контраста */
+  --text-primary: #e9edf7;
+  --text-secondary: #a3adc7;
+  --text-muted: #6c7794;
+  --text-on-accent: #ffffff;
+
+  /* Акценты: фиолетовый, синий, cyan */
+  --accent: #7a72e8;
+  --accent-soft: rgba(122, 114, 232, 0.16);
+  --accent-strong: #948de9;
+  --nav-active-bg: linear-gradient(90deg, #5b54d6 0%, #6f66e4 100%);
+  --nav-active-text: #ffffff;
+
+  --delta-up: #34c98e;
+  --delta-up-bg: rgba(52, 201, 142, 0.14);
+  --delta-down: #ef6a6a;
+  --delta-down-bg: rgba(239, 106, 106, 0.14);
+
+  --kpi-1-bg: rgba(57, 135, 229, 0.16);  --kpi-1-fg: #5aa0f2;
+  --kpi-2-bg: rgba(45, 200, 219, 0.14);  --kpi-2-fg: #4fd4e6;
+  --kpi-3-bg: rgba(52, 201, 142, 0.14);  --kpi-3-fg: #34c98e;
+  --kpi-4-bg: rgba(240, 177, 62, 0.14);  --kpi-4-fg: #f0b13e;
+  --kpi-purple-bg: rgba(139, 92, 246, 0.16); --kpi-purple-fg: #a78bfa;
+
+  --status-fixed-bg: rgba(45, 200, 219, 0.14);   --status-fixed-fg: #4fd4e6;
+  --status-waiting-bg: rgba(240, 177, 62, 0.14); --status-waiting-fg: #f0b13e;
+  --status-check-bg: rgba(90, 160, 242, 0.14);   --status-check-fg: #5aa0f2;
+  --status-done-bg: rgba(52, 201, 142, 0.14);    --status-done-fg: #34c98e;
+  --status-alert-bg: rgba(239, 106, 106, 0.14);  --status-alert-fg: #ef6a6a;
+
+  /* Графики (палитра валидирована для dark-поверхности #101728) */
+  --chart-line: #8b85e9;
+  --chart-line-fill-from: rgba(139, 133, 233, 0.24);
+  --chart-line-fill-to: rgba(139, 133, 233, 0);
+  --chart-grid: rgba(151, 165, 200, 0.1);
+  --chart-axis: #6c7794;
+  --series-usdt: #3987e5;
+  --series-btc: #d95926;
+  --series-eth: #1baf7a;
+  --series-other: #8b85e9;
+
+  --focus-ring: 0 0 0 3px rgba(122, 114, 232, 0.4);
+
+  /* Посещаемость: статусы календаря (утверждённая палитра) */
+  --att-work-fg: #22c55e;     --att-work-bg: rgba(34, 197, 94, 0.14);
+  --att-absent-fg: #ef4444;   --att-absent-bg: rgba(239, 68, 68, 0.14);
+  --att-flight-fg: #3b82f6;   --att-flight-bg: rgba(59, 130, 246, 0.16);
+  --att-remote-fg: #f59e0b;   --att-remote-bg: rgba(245, 158, 11, 0.14);
+  --att-dayoff-fg: #64748b;   --att-dayoff-bg: rgba(100, 116, 139, 0.18);
+  --att-weekend: #ef4444;
+
+  /* Аккуратный glassmorphism: полупрозрачная поверхность + мягкая внутренняя подсветка */
+  --glass-bg: rgba(19, 27, 46, 0.62);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}

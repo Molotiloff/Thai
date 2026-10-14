@@ -1,0 +1,15 @@
+/* Тоновые классы: круги иконок и цветные значения */
+
+.iconBlue { background: var(--kpi-1-bg); color: var(--kpi-1-fg); }
+.iconGreen { background: var(--kpi-3-bg); color: var(--kpi-3-fg); }
+.iconRed { background: var(--status-alert-bg); color: var(--status-alert-fg); }
+.iconOrange { background: var(--kpi-4-bg); color: var(--kpi-4-fg); }
+.iconPurple { background: var(--kpi-purple-bg); color: var(--kpi-purple-fg); }
+.iconNeutral { background: var(--att-dayoff-bg); color: var(--text-secondary); }
+
+.textBlue { color: var(--kpi-1-fg); }
+.textGreen { color: var(--delta-up); }
+.textRed { color: var(--delta-down); }
+.textOrange { color: var(--kpi-4-fg); }
+.textPurple { color: var(--kpi-purple-fg); }
+.textNeutral { color: var(--text-primary); }

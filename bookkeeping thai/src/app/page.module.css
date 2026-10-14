@@ -1,0 +1,17 @@
+.mainGrid {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 4fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+.financeBlock {
+  margin-bottom: 16px;
+}
+
+@media (max-width: 800px) {
+  .mainGrid {
+    grid-template-columns: 1fr;
+  }
+}

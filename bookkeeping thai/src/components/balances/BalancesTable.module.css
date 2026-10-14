@@ -1,0 +1,173 @@
+.card {
+  background: var(--glass-bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-card), var(--glass-inset);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  overflow: hidden;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table thead th {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+th.clientHead {
+  min-width: 200px;
+  padding-left: 20px;
+}
+
+th.amountHead {
+  text-align: right;
+}
+
+th.chatHead {
+  text-align: center;
+  padding-right: 20px;
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row td {
+  height: 64px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  transition: background-color 0.15s ease;
+}
+
+.row:hover td {
+  background-color: var(--surface-hover);
+}
+
+td.clientCol {
+  padding-left: 20px;
+}
+
+.client {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.clientInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.clientName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.clientNumber {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.currency {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.amountCol {
+  text-align: right;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+td.chatCol {
+  text-align: center;
+  padding-right: 20px;
+}
+
+.chatButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  color: var(--accent);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.chatButton:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.emptyCell {
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.totalRow td {
+  height: 56px;
+  padding: 0 12px;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+td.totalLabel {
+  padding-left: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.totalDash {
+  color: var(--text-muted);
+}
+
+.totalValue {
+  text-align: right;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}

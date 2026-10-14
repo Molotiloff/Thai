@@ -1,0 +1,149 @@
+.panel {
+  background: var(--glass-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.headingRow {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.heading {
+  color: var(--text-primary);
+  font-size: 16px;
+  margin: 0;
+}
+
+.meta,
+.field span,
+.cancelComment span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.meta {
+  margin: 5px 0 0;
+}
+
+.form {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.field,
+.cancelComment {
+  display: grid;
+  gap: 6px;
+}
+
+.field input,
+.cancelComment input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.field input:focus,
+.cancelComment input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.wide,
+.formFooter {
+  grid-column: 1 / -1;
+}
+
+.formFooter,
+.cancelRow {
+  align-items: end;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.cancelRow {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.cancelComment {
+  flex: 1;
+  max-width: 460px;
+}
+
+.primaryButton,
+.dangerButton {
+  align-items: center;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 700;
+  gap: 7px;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+.primaryButton {
+  background: var(--accent);
+  color: #fff;
+}
+
+.dangerButton {
+  background: var(--delta-down);
+  color: #fff;
+}
+
+.primaryButton:disabled,
+.dangerButton:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.error,
+.success {
+  font-size: 13px;
+}
+
+.error {
+  color: var(--delta-down);
+}
+
+.success {
+  color: var(--delta-up);
+}
+
+@media (max-width: 900px) {
+  .form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .form {
+    grid-template-columns: 1fr;
+  }
+
+  .formFooter,
+  .cancelRow {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .cancelComment {
+    max-width: none;
+  }
+}

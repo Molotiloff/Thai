@@ -1,0 +1,30 @@
+{
+  "name": "skyex-thai-crm",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3001",
+    "build": "next build && node scripts/prepare-standalone.mjs",
+    "typecheck": "tsc --noEmit",
+    "start": "next start --port 3001",
+    "lint": "eslint",
+    "generate:api": "openapi-typescript http://127.0.0.1:8001/openapi.json -o src/thai/openapi.ts",
+    "test:telegram-login": "node scripts/test-telegram-login.mjs",
+    "test:forms": "node scripts/test-operation-forms.mjs"
+  },
+  "dependencies": {
+    "next": "16.3.5",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.5",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5"
+  },
+  "packageManager": "pnpm@11.3.0+sha512.2c403d6594527287672b1f7056343a1f7c3634036a67ffabfcc2b3d7595d843768f8787148d1b57cf7956c90606bbd192857c363af19e96d2d0ec9ec5741d215"
+}

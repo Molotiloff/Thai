@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+from typing import Protocol
+
+from domain import Deal
+from domain.deal_policy import exchange_type
+
+from .deal_service import DealCreateCommand, DealService
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangeDealData:
+    source_ref: str
+    client_id: int
+    client_req_id: str
+    table_req_id: int
+    client_name: str
+    creator_name: str
+    recv_code: str
+    recv_amount: Decimal
+    pay_code: str
+    pay_amount: Decimal
+    rate: Decimal
+    comment: str | None = None
+    source: str = "tg_bot"
+    actor_user_id: int | None = None
+    tronscan_url: str | None = None
+    city: str | None = None
+    referrer_client_id: int | None = None
+    referrer_percent: Decimal = Decimal("0")
+    referrer_spread_rub: Decimal = Decimal("0")
+    recv_is_deposit: bool = True
+    pay_is_withdraw: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class CashDealData:
+    source_ref: str
+    client_id: int
+    req_id: str
+    city: str
+    client_name: str
+    creator_name: str
+    kind: str
+    comment: str | None = None
+    code: str | None = None
+    amount: Decimal | None = None
+    in_code: str | None = None
+    in_amount: Decimal | None = None
+    out_code: str | None = None
+    out_amount: Decimal | None = None
+    client_text: str | None = None
+    request_text: str | None = None
+    client_chat_id: int | None = None
+    client_message_id: int | None = None
+    source: str = "tg_bot"
+    actor_user_id: int | None = None
+    contact1: str = ""
+    contact2: str = ""
+
+
+class TelegramDealRegistrarPort(Protocol):
+    def build_exchange_command(self, data: ExchangeDealData) -> DealCreateCommand: ...
+
+    async def register_exchange(self, data: ExchangeDealData) -> Deal: ...
+
+    async def register_cash(self, data: CashDealData) -> Deal: ...
+
+
+class TelegramDealRegistrar:
+    _RUB_CODES = frozenset({"RUB", "РУБМСК", "РУБСПБ", "РУБПЕР", "РУБТЮМ"})
+
+    def __init__(self, deal_service: DealService, *, default_city: str) -> None:
+        self._deal_service = deal_service
+        self._default_city = default_city
+
+    async def register_exchange(self, data: ExchangeDealData) -> Deal:
+        return await self._deal_service.create_source_deal(self.build_exchange_command(data))
+
+    def build_exchange_command(self, data: ExchangeDealData) -> DealCreateCommand:
+        return DealCreateCommand(
+            deal_type=self._exchange_type(data.recv_code, data.pay_code),
+            city=data.city or self._default_city,
+            actor_user_id=data.actor_user_id,
+            client_id=data.client_id,
+            source=data.source,
+            source_kind="exchange",
+            source_ref=data.source_ref,
+            exchange_client_req_id=data.client_req_id,
+            comment=data.comment,
+            tronscan_url=data.tronscan_url,
+            body={
+                "client_name": data.client_name,
+                "creator_name": data.creator_name,
+                "client_req_id": data.client_req_id,
+                "table_req_id": data.table_req_id,
+                "recv_code": data.recv_code,
+                "recv_amount": str(data.recv_amount),
+                "pay_code": data.pay_code,
+                "pay_amount": str(data.pay_amount),
+                "rate": str(data.rate),
+                "note": data.comment,
+                "referrer_client_id": data.referrer_client_id,
+                "referrer_percent": str(data.referrer_percent),
+                "referrer_spread_rub": str(data.referrer_spread_rub),
+                "recv_is_deposit": data.recv_is_deposit,
+                "pay_is_withdraw": data.pay_is_withdraw,
+            },
+        )
+
+    async def register_cash(self, data: CashDealData) -> Deal:
+        deal_type = {"dep": "deposit", "wd": "withdrawal", "fx": "conversion"}[data.kind]
+        body = {
+            "client_name": data.client_name,
+            "creator_name": data.creator_name,
+            "req_id": data.req_id,
+            "request_kind": data.kind,
+            "telegram_client_text": data.client_text,
+            "telegram_request_text": data.request_text,
+            "telegram_client_chat_id": data.client_chat_id,
+            "telegram_client_message_id": data.client_message_id,
+            "contact1": data.contact1,
+            "contact2": data.contact2,
+        }
+        if data.kind in {"dep", "wd"}:
+            body.update({"currency": data.code, "amount": str(data.amount)})
+        else:
+            body.update(
+                {
+                    "in_code": data.in_code,
+                    "in_amount": str(data.in_amount),
+                    "out_code": data.out_code,
+                    "out_amount": str(data.out_amount),
+                }
+            )
+        return await self._deal_service.create_source_deal(
+            DealCreateCommand(
+                deal_type=deal_type,
+                city=data.city,
+                actor_user_id=data.actor_user_id,
+                client_id=data.client_id,
+                source=data.source,
+                source_kind="cash",
+                source_ref=data.source_ref,
+                comment=data.comment,
+                body=body,
+            )
+        )
+
+    @classmethod
+    def _exchange_type(cls, recv_code: str, pay_code: str) -> str:
+        return exchange_type_from_firm_perspective(recv_code, pay_code)
+
+
+def exchange_type_from_firm_perspective(recv_code: str, pay_code: str) -> str:
+    return exchange_type(recv_code, pay_code, base_instruments=TelegramDealRegistrar._RUB_CODES)

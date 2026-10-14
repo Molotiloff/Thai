@@ -1,0 +1,70 @@
+.scroll {
+  overflow-x: auto;
+  margin-bottom: 18px;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(86px, 1fr));
+  gap: 8px;
+  min-width: 940px;
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--glass-bg);
+  box-shadow: var(--shadow-card), var(--glass-inset);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.tab:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.tabActive {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.tabActive:hover {
+  border-color: var(--accent);
+}
+
+.iconWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+.tone1 { background: var(--kpi-1-bg); color: var(--kpi-1-fg); }
+.tone2 { background: var(--kpi-2-bg); color: var(--kpi-2-fg); }
+.tone3 { background: var(--kpi-3-bg); color: var(--kpi-3-fg); }
+.tone4 { background: var(--kpi-4-bg); color: var(--kpi-4-fg); }
+
+.tabActive .iconWrap {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--text-on-accent);
+}
+
+.tabLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.tabActive .tabLabel {
+  color: var(--text-on-accent);
+}

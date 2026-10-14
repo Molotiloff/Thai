@@ -1,0 +1,20 @@
+# Preserve existing final blank lines, including frozen migrations; reject trailing spaces.
+* text=auto whitespace=-blank-at-eof,blank-at-eol,space-before-tab
+*.py text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.service text eol=lf
+*.example text eol=lf
+pnpm-lock.yaml text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary

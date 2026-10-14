@@ -1,0 +1,4 @@
+from db_asyncpg.migration_environment import run_environment
+from db_asyncpg.schema_identity import SchemaFamily
+
+run_environment(SchemaFamily.THAI)

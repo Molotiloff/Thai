@@ -1,0 +1,30 @@
+[Unit]
+Description=SkyEX Thai frontend
+After=network-online.target skyex-thai-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=skyex-thai
+Group=skyex-thai
+WorkingDirectory=/opt/skyex-thai/frontend-current
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3001
+Environment=THAI_API_BASE_URL=http://127.0.0.1:8001/api/v1
+EnvironmentFile=/opt/skyex-thai/shared/frontend.env
+ExecStart=/usr/bin/node /opt/skyex-thai/frontend-current/.next/standalone/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=skyex-thai-frontend
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,40 @@
+/* Строка «+ Добавить» под таблицей вкладов и выводов */
+.addRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.addRow:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.kindBadge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.kindDeposit {
+  color: var(--delta-up);
+  background: var(--delta-up-bg);
+}
+
+.kindWithdrawal {
+  color: var(--delta-down);
+  background: var(--delta-down-bg);
+}

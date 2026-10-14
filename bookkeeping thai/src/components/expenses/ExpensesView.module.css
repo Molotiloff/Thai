@@ -1,0 +1,12 @@
+.reportsPlaceholder {
+  padding: 48px 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-card), var(--glass-inset);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}

@@ -1,0 +1,39 @@
+.chartsGrid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.tablesGrid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.ownersGrid {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.transactionsWrap {
+  margin-bottom: 16px;
+}
+
+.bottomGrid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 1000px) {
+  .chartsGrid,
+  .tablesGrid,
+  .ownersGrid,
+  .bottomGrid {
+    grid-template-columns: 1fr;
+  }
+}

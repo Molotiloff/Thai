@@ -1,0 +1,168 @@
+.card {
+  background: var(--glass-bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-card), var(--glass-inset);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  overflow: hidden;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 880px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table thead th {
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.employeeHead {
+  min-width: 190px;
+  padding: 14px 6px 14px 20px;
+  text-align: left;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.dayHead {
+  min-width: 40px;
+  padding: 14px 6px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dayNumber {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dayWeekday {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.weekend .dayNumber,
+.weekend .dayWeekday {
+  color: var(--att-weekend);
+}
+
+.moreHead {
+  min-width: 36px;
+  padding: 14px 6px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.overtimeHead {
+  min-width: 104px;
+  padding: 14px 20px 14px 6px;
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.row td {
+  height: 64px;
+  border-bottom: 1px solid var(--border);
+  transition: background-color 0.15s ease;
+}
+
+.row:last-child td {
+  border-bottom: none;
+}
+
+.row:hover td {
+  background-color: var(--surface-hover);
+}
+
+.stickyCol {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+}
+
+.employeeCell {
+  padding: 0 12px 0 20px;
+}
+
+.employee {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.employeeInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.employeeName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.employeeRole {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.statusCol {
+  padding: 0 3px;
+  text-align: center;
+}
+
+.moreCol {
+  padding: 0;
+}
+
+.overtimeCol {
+  padding: 0 20px 0 8px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.overtimeValue {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.overtimeEmpty {
+  color: var(--text-muted);
+}
