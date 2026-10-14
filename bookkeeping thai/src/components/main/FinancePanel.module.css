@@ -20,7 +20,7 @@
 
 .rows {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   column-gap: 24px;
 }
 
@@ -78,3 +78,8 @@
     grid-template-columns: 1fr;
   }
 }
+
+.compact .rows { grid-template-columns: 1fr; }
+.compact .heading { font-size: 14.5px; text-transform: none; letter-spacing: -.01em; margin-bottom: 14px; color: var(--text-primary); }
+.compact .row { align-items: baseline; flex-wrap: wrap; padding: 12px 0; }
+.action { margin-top: 14px; font-size: 12px; }

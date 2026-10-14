@@ -26,7 +26,7 @@
 .messageActions button {
   padding: 8px 12px;
   border-radius: 8px;
-  background: var(--accent);
+  background: var(--button-bg);
   color: white;
 }
 

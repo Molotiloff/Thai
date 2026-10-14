@@ -18,10 +18,12 @@
   /* Текст */
   --text-primary: #101828;
   --text-secondary: #5b6b83;
-  --text-muted: #8a97ad;
+  --text-muted: #67758c;
   --text-on-accent: #ffffff;
 
   /* Акценты */
+  --button-bg: #226bc2;
+  --button-hover: #1d5ba6;
   --accent: #2a78d6;
   --accent-soft: #e8f1fd;
   --accent-strong: #1d63c0;
@@ -87,10 +89,12 @@
   /* Текст — без чрезмерного контраста */
   --text-primary: #e9edf7;
   --text-secondary: #a3adc7;
-  --text-muted: #6c7794;
+  --text-muted: #8c98b2;
   --text-on-accent: #ffffff;
 
   /* Акценты: фиолетовый, синий, cyan */
+  --button-bg: #665ccd;
+  --button-hover: #574db9;
   --accent: #7a72e8;
   --accent-soft: rgba(122, 114, 232, 0.16);
   --accent-strong: #948de9;

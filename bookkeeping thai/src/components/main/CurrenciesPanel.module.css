@@ -94,3 +94,18 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+.header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.header .heading { margin: 0; font-size: 14.5px; text-transform: none; letter-spacing: -.01em; }
+.caption { color: var(--text-muted); font-size: 11px; }
+.currencyTop { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.currencyTop > svg { color: var(--accent); flex-shrink: 0; }
+.currencyLabel { color: var(--text-secondary); font-size: 11.5px; letter-spacing: 0; }
+.currencyCard { min-width: 0; background: var(--surface); }
+.currencyAmount { overflow-wrap: anywhere; }
+.currencyRowLabel { white-space: normal; }
+.historyLink { display: inline-flex; align-items: center; gap: 3px; width: fit-content; margin-top: 6px; color: var(--accent); font-size: 10.5px; }
+.historyLink:hover { text-decoration: underline; text-underline-offset: 3px; }
+.grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1350px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }

@@ -1,10 +1,13 @@
+import type { ReactNode } from 'react';
 import type { FinanceIndicator } from '@/types/mainDashboard';
 import styles from './FinancePanel.module.css';
 
-export function FinancePanel({ indicators }: { indicators: FinanceIndicator[] }) {
+export function FinancePanel({ indicators, title='Финансы', compact=false, action }: {
+  indicators: FinanceIndicator[]; title?: string; compact?: boolean; action?: ReactNode;
+}) {
   return (
-    <section className={styles.card}>
-      <h2 className={styles.heading}>Финансы</h2>
+    <section className={`${styles.card} ${compact ? styles.compact : ''}`}>
+      <h2 className={styles.heading}>{title}</h2>
       <dl className={styles.rows}>
         {indicators.map((indicator) => (
           <div key={indicator.id} className={styles.row}>
@@ -18,6 +21,7 @@ export function FinancePanel({ indicators }: { indicators: FinanceIndicator[] })
           </div>
         ))}
       </dl>
+      {action && <div className={styles.action}>{action}</div>}
     </section>
   );
 }

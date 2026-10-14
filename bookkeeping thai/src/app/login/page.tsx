@@ -1,4 +1,5 @@
 import { getTelegramOidcConfig } from '@/app/api/auth/telegram/oidc/config';
+import { Icon } from '@/components/ui/Icon';
 import styles from './page.module.css';
 
 const ERRORS: Record<string, string> = {
@@ -29,7 +30,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <div className={styles.widget}>
           {oidcAvailable ? (
             <a className={styles.loginButton} href="/api/auth/telegram/oidc/start">
-              Войти через Telegram
+              <Icon name="telegram" size={18}/>Войти через Telegram
             </a>
           ) : (
             <span className={styles.unavailable}>Вход временно недоступен</span>

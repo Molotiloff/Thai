@@ -1,5 +1,5 @@
 .page {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -10,7 +10,7 @@
   width: min(100%, 380px);
   padding: 32px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 18px;
   background: var(--surface);
   box-shadow: var(--shadow-card);
 }
@@ -30,9 +30,9 @@
   width: 32px;
   height: 32px;
   place-items: center;
-  border-radius: 6px;
+  border-radius: 10px;
   color: white;
-  background: #2563eb;
+  background: linear-gradient(135deg, #2a78d6, #5b54d6);
 }
 
 .panel h1 {
@@ -63,16 +63,18 @@
   align-items: center;
   justify-content: center;
   padding: 0 20px;
-  border-radius: 6px;
+  border-radius: 10px;
   color: white;
-  background: #229ed9;
+  background: var(--button-bg);
+  gap: 9px;
+  width: 100%;
   font-weight: 700;
   text-decoration: none;
   transition: background 150ms ease;
 }
 
 .loginButton:hover {
-  background: #168dcc;
+  background: var(--button-hover);
 }
 
 .error {

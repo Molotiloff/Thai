@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import type { CurrentUser } from '@/types/domain';
@@ -17,14 +17,35 @@ interface SidebarProps {
 export function Sidebar({ items, user }: SidebarProps) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusTimer = window.setTimeout(() => {
+      sidebarRef.current?.querySelector<HTMLElement>('button, a')?.focus({preventScroll: true});
+    });
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setIsOpen(false);
+      if (event.key !== 'Tab') return;
+      const items = Array.from(sidebarRef.current?.querySelectorAll<HTMLElement>('a, button') ?? []);
+      const first = items[0]; const last = items.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     };
+    const desktop = window.matchMedia('(min-width: 801px)');
+    const closeOnDesktop = () => { if (desktop.matches) setIsOpen(false); };
+    desktop.addEventListener('change', closeOnDesktop);
     window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
+    return () => {
+      desktop.removeEventListener('change', closeOnDesktop);
+      window.clearTimeout(focusTimer);
+      window.removeEventListener('keydown', closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
   }, [isOpen]);
 
   return (
@@ -50,7 +71,7 @@ export function Sidebar({ items, user }: SidebarProps) {
           onClick={() => setIsOpen(false)}
         />
       ) : null}
-      <aside id="crm-navigation" className={`${styles.sidebar} ${isOpen ? styles.sidebarOpen : ''}`}>
+      <aside ref={sidebarRef} id="crm-navigation" className={`${styles.sidebar} ${isOpen ? styles.sidebarOpen : ''}`}>
         <div className={styles.logo}>
           <span className={styles.logoMark} aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -71,7 +92,7 @@ export function Sidebar({ items, user }: SidebarProps) {
 
         <nav className={styles.nav} aria-label="Основная навигация">
           {items.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href + '/'));
             return (
               <Link
                 key={item.href}

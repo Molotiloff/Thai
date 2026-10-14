@@ -137,3 +137,12 @@
     min-height: 44px;
   }
 }
+
+@media (min-width: 801px) {
+  .sidebar { position: sticky; top: 0; height: 100dvh; align-self: flex-start; }
+  .nav { min-height: 0; overflow-y: auto; padding-bottom: 16px; scrollbar-width: thin; }
+}
+@media (prefers-reduced-motion: reduce) { .sidebar, .navItem { transition: none; } }
+
+/* Visibility changes immediately so keyboard focus can enter during the slide. */
+@media (max-width: 800px) { .sidebarOpen { transition: transform .2s ease; } }

@@ -1,6 +1,7 @@
 'use client';
 import { useRef,useState,useSyncExternalStore,type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { Icon } from '@/components/ui/Icon';
 import { can,type Session } from './types';
 import styles from './thai.module.css';
 import type { FormSpec } from './form-specs';
@@ -29,7 +30,14 @@ function responseError(result:unknown,spec:FormSpec,status:number):string {
   });
   return [error.message??'Операция отклонена',...(fields??[])].join('\n');
 }
-export function OperationForms({specs,session}:{specs:FormSpec[];session:Session}) {return <div className={styles.forms}>{specs.filter(s=>can(session,s.permission)).map(s=><details key={s.title}><summary>{s.title}</summary>{s.note&&<p className={styles.notice}>{s.note}</p>}<ActionForm spec={s}/></details>)}</div>}
+export function OperationForms({specs,session}:{specs:FormSpec[];session:Session}) {
+  const allowed=specs.filter(spec=>can(session,spec.permission));
+  if(!allowed.length)return <p className={styles.notice}>Для вашей роли доступен просмотр этого раздела.</p>;
+  return <div className={styles.forms}>{allowed.map(spec=><details key={spec.title} data-tone={spec.permission==='finance.reverse'?'danger':undefined}>
+    <summary><span><Icon name={spec.permission==='finance.reverse'?'x-circle':'plus'} size={15}/>{spec.title}</span><Icon name="chevron-down" size={16}/></summary>
+    {spec.note&&<p className={styles.notice}>{spec.note}</p>}<ActionForm spec={spec}/>
+  </details>)}</div>;
+}
 const subscribeHydration=()=>()=>{};
 const clientReady=()=>true;
 const serverReady=()=>false;

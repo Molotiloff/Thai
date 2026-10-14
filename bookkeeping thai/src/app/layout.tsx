@@ -19,7 +19,7 @@ export default async function Layout({children}:{children:ReactNode}){
   const account=await session();
   const role=(['admin','owner','accountant','manager','cashier'].find(r=>account.roles.includes(r))??'cashier') as UserRole;
   const user:CurrentUser={name:account.display_name,role,roleLabel:{admin:'Администратор',owner:'Владелец',accountant:'Бухгалтер',manager:'Менеджер',cashier:'Кассир'}[role],initials:account.display_name.split(' ').map(s=>s[0]).join('').slice(0,2)};
-  content=<div className={styles.shell}><Sidebar items={NAV_ITEMS} user={user}/><main className={styles.main}>{children}</main></div>;
+  content=<div className={styles.shell}><Sidebar items={NAV_ITEMS} user={user}/><main id="main-content" className={styles.main}>{children}</main></div>;
  }
- return <html lang="ru" data-theme="dark" suppressHydrationWarning><head><Script id="theme-init" strategy="beforeInteractive">{themeInitScript}</Script></head><body><ThemeProvider>{content}</ThemeProvider></body></html>
+ return <html lang="ru" data-theme="dark" suppressHydrationWarning><head><Script id="theme-init" strategy="beforeInteractive">{themeInitScript}</Script></head><body>{pathname!=='/login'&&<a className="skip-link" href="#main-content">К основному содержимому</a>}<ThemeProvider>{content}</ThemeProvider></body></html>
 }
