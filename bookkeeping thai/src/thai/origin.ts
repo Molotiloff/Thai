@@ -11,6 +11,10 @@ export function sameOrigin(request: NextRequest): boolean {
 
 export function browserUrl(path: string, request: NextRequest): URL {
   const url = new URL(path, request.url);
-  url.host = request.headers.get('host') ?? url.host;
+  const host = request.headers.get('host');
+  if (host) {
+    url.port = '';
+    url.host = host;
+  }
   return url;
 }
