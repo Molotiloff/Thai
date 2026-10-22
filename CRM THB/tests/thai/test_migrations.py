@@ -51,7 +51,7 @@ async def finish(db, operation):
 
 async def test_seed_is_new_business_only(thai_connection):
     db = thai_connection
-    assert await db.fetchval("SELECT version_num FROM alembic_version_thai") == "thai_0022"
+    assert await db.fetchval("SELECT version_num FROM alembic_version_thai") == "thai_0024"
     assert await db.fetchrow("""
         SELECT family,accounting_currency,operational_currency,business_timezone FROM crm_schema_identity
     """) == ("thai", "USDT", "THB", "Asia/Bangkok")
@@ -80,7 +80,7 @@ async def test_repeat_upgrade_does_not_seed_twice(thai_database_url, thai_connec
     assert await thai_connection.fetchval("SELECT count(*) FROM parties") == 5
     status = await AlembicMigrator(thai_database_url, schema="thai").status()
     assert status["schema"] == "thai"
-    assert status["revision"] == "thai_0022"
+    assert status["revision"] == "thai_0024"
     assert status["database"].startswith("crm_thai_test_")
     assert set(status) == {"schema", "revision", "database", "port"}
 
@@ -272,7 +272,7 @@ def test_migration_tree_is_independent():
     migrator = AlembicMigrator("postgresql://unused/unused", schema="thai")
     script = ScriptDirectory.from_config(migrator._build_config())
     revisions = list(script.walk_revisions())
-    assert [r.revision for r in revisions] == [f"thai_{n:04d}" for n in range(22, 0, -1)]
+    assert [r.revision for r in revisions] == [f"thai_{n:04d}" for n in range(24, 0, -1)]
     assert all("thai_migrations" in r.path for r in revisions)
 
 
@@ -321,11 +321,7 @@ async def test_final_sql_snapshot_matches_migrated_postgres_schema():
 
 
 async def test_release_initial_database_check_accepts_clean_database(thai_connection):
-    root = Path(__file__).resolve().parents[2]
-    sql = (root / "deploy/thai/verify_initial_database.sql").read_text()
-    # psql's ON_ERROR_STOP meta-command belongs to the CLI, not PostgreSQL SQL.
-    sql = "\n".join(line for line in sql.splitlines() if not line.startswith("\\"))
-    await thai_connection.execute(sql)
+    await thai_connection.execute(await release_check_sql(thai_connection))
 
 
 async def test_release_initial_database_check_rejects_used_database(thai_database_url):
@@ -334,11 +330,8 @@ async def test_release_initial_database_check_rejects_used_database(thai_databas
         db = await asyncpg.connect(url)
         try:
             await db.execute("INSERT INTO users(display_name, telegram_user_id) VALUES ('Manager', 12345)")
-            root = Path(__file__).resolve().parents[2]
-            sql = (root / "deploy/thai/verify_initial_database.sql").read_text()
-            sql = "\n".join(line for line in sql.splitlines() if not line.startswith("\\"))
             with pytest.raises(asyncpg.RaiseError, match="Expected zero balances and no active users"):
-                await db.execute(sql)
+                await db.execute(await release_check_sql(db))
         finally:
             await db.close()
 
@@ -354,7 +347,7 @@ async def test_direct_alembic_uses_thai_file_despite_russian_environment(tmp_pat
         await asyncio.to_thread(command.upgrade, config, "head")
         db = await asyncpg.connect(url)
         try:
-            assert await db.fetchval("SELECT version_num FROM alembic_version_thai") == "thai_0022"
+            assert await db.fetchval("SELECT version_num FROM alembic_version_thai") == "thai_0024"
             assert await db.fetchval("SELECT to_regclass('public.alembic_version')") is None
         finally:
             await db.close()
@@ -362,9 +355,6 @@ async def test_direct_alembic_uses_thai_file_despite_russian_environment(tmp_pat
 
 @pytest.mark.parametrize("locale", ["C", "en_US.UTF-8"])
 async def test_release_initial_database_check_is_independent_of_locale(locale):
-    root = Path(__file__).resolve().parents[2]
-    sql = (root / "deploy/thai/verify_initial_database.sql").read_text()
-    sql = "\n".join(line for line in sql.splitlines() if not line.startswith("\\"))
     with disposable_thai_database("crm_thai_release_locale", locale=locale) as url:
         await AlembicMigrator(url, schema="thai").upgrade_to_head()
         db = await asyncpg.connect(url)
@@ -373,6 +363,26 @@ async def test_release_initial_database_check_is_independent_of_locale(locale):
             assert await db.fetchval(
                 "SELECT datcollate FROM pg_database WHERE datname=current_database()"
             ) == locale
-            await db.execute(sql)
+            await db.execute(await release_check_sql(db))
         finally:
             await db.close()
+
+
+async def release_check_sql(db, *, expected_port=None):
+    """Test the real deployment checks on the explicitly isolated test server.
+
+    Only the port expectation is substituted; production SQL still enforces 5433.
+    """
+    root=Path(__file__).resolve().parents[2]
+    sql=(root/'deploy/thai/verify_initial_database.sql').read_text()
+    sql='\n'.join(line for line in sql.splitlines() if not line.startswith('\\'))
+    port=expected_port if expected_port is not None else await db.fetchval('SELECT inet_server_port()')
+    assert 'IS DISTINCT FROM 5433' in sql
+    return sql.replace('IS DISTINCT FROM 5433',f'IS DISTINCT FROM {int(port)}')
+
+
+async def test_release_initial_database_check_rejects_wrong_port(thai_connection):
+    port=await thai_connection.fetchval('SELECT inet_server_port()')
+    with pytest.raises(asyncpg.RaiseError,match='Expected the isolated PostgreSQL server'):
+        await thai_connection.execute(await release_check_sql(thai_connection,expected_port=port+1))
+    await thai_connection.execute('ROLLBACK')

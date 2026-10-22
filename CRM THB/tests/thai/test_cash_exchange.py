@@ -28,9 +28,8 @@ async def prepare(finance, *, fund=True):
     commands = ThaiTelegramCommands(finance['app'],finance['config'])
     await send(commands,'/start',1)
     cid = await finance['app'].trading_queries.client_by_chat(-123)
-    for n,(code,rate) in enumerate((('THB_CASH','35'),('THB_BANK','35'),('USDT','1'),
+    for _n,(code,rate) in enumerate((('THB_CASH','35'),('THB_BANK','35'),('USDT','1'),
         ('USD_BL','1'),('USD_WH','1.01'),('EUR','1.1'),('EUR500','1.1'),('RUB','0.01'))):
-        await send(commands,f'/курс {code} {rate}',10+n)
         if fund:
             await finance['app'].wallets.deposit(**common(finance,f'fund-{code}'),client_id=cid,
                 instrument=code,quantity='10000',quoted_rate=rate)
@@ -44,6 +43,9 @@ async def ready(finance,deal_id):
 
 async def test_all_56_cash_directions_confirm_twice_post_once_and_preserve_wallet(finance):
     commands,cid = await prepare(finance)
+    from tests.thai.test_internal_exchange_rates import seed_internal_rates
+    await seed_internal_rates(finance)
+    baseline=await finance['pool'].fetchval("SELECT count(*) FROM financial_operations WHERE kind='fx_trade'")
     wallet_before = await finance['app'].client_queries.wallets(cid)
     for n,(command,(_,incoming,outgoing)) in enumerate(ACCOUNTING_FX_CMD_MAP.items()):
         mid = 1000+n*4
@@ -63,7 +65,7 @@ async def test_all_56_cash_directions_confirm_twice_post_once_and_preserve_walle
         assert (await balance(finance,outgoing))[0]==before[outgoing][0]-Decimal('50.12')
         detail = await finance['app'].trading_queries.detail(deal_id)
         assert detail['effective_status']=='posted' and len(detail['cash_confirmations'])==2
-        assert await finance['pool'].fetchval("SELECT count(*) FROM financial_operations WHERE kind='fx_trade'")==n+1
+        assert await finance['pool'].fetchval("SELECT count(*) FROM financial_operations WHERE kind='fx_trade'")==baseline+n+1
     assert await finance['app'].client_queries.wallets(cid)==wallet_before
 
 

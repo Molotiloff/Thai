@@ -38,18 +38,13 @@ class CancelRequest(PostRequest):
     replacement: TradeRequest | None = None
 
 
-class QuoteRequest(CommandRequest):
-    instrument: str
-    quoted_rate: StrictStr
-
-
 class TransferRequest(PostRequest):
     client_id: int = Field(gt=0)
     source_instrument: str
     target_instrument: str
     quantity: StrictStr
     fee: StrictStr = "0"
-    quoted_rate: StrictStr
+    quoted_rate: StrictStr | None = None
     physical: bool = False
 
 
@@ -285,20 +280,6 @@ def register_trading_routes(app, container, actor):
                 reason=payload.reason,
                 replacement=replacement,
                 profit_revision_id=payload.profit_revision_id,
-            )
-        )
-
-    @app.get("/api/v1/rates")
-    async def rates(user: int = Depends(actor)):
-        return response(await container.trading_queries.rates())
-
-    @app.post("/api/v1/rates")
-    async def set_rate(payload: QuoteRequest, user: int = Depends(actor)):
-        return operation_response(
-            await container.trading.set_rate(
-                **common(payload, user),
-                instrument=payload.instrument,
-                quoted_rate=payload.quoted_rate,
             )
         )
 

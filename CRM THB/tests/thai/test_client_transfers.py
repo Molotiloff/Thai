@@ -47,8 +47,8 @@ async def test_client_transfer_preserves_cash_and_carrying_allows_negative_and_s
     }
     operation = await finance["app"].wallet_transfers.transfer(**args)
     assert await finance["app"].wallet_transfers.transfer(**args) == operation
-    assert await wallets(finance, source, "THB_CASH") == (-350, -5)
-    assert await wallets(finance, target, "THB_CASH") == (700, 15)
+    assert await wallets(finance, source, "THB_CASH") == (-350, 0)
+    assert await wallets(finance, target, "THB_CASH") == (700, 10)
     cash = await finance["pool"].fetchrow(
         "SELECT balance,carrying_usdt FROM posted_account_balances WHERE account_id=$1",
         finance["cash"]["THB_CASH"],
@@ -172,9 +172,8 @@ async def resolve_transfer(finance,key,target,*,confirmed=True):
 async def test_accounting_transfer_all_instruments_confirm_once_without_cash(finance):
     from tests.thai.test_posting import INSTANT
     source,target,_=await chat_clients(finance)
-    for code,rate in (('THB_CASH','35'),('THB_BANK','36'),('USDT','1'),('USD_WH','1.02'),
+    for code,_rate in (('THB_CASH','35'),('THB_BANK','36'),('USDT','1'),('USD_WH','1.02'),
                       ('USD_BL','1'),('EUR','1.1'),('EUR500','1.2'),('RUB','0.01')):
-        await finance['app'].trading.set_rate(**common(finance,f'rate:{code}'),instrument=code,quoted_rate=rate)
         request=await finance['app'].client_transfers.prepare_accounting(key=f'request:{code}',
             actor_id=finance['actor'],source_client_id=source,source_chat_id=-200,instrument=code,
             quantity='10.123456' if code=='USDT' else '10.12',recipient_name='Получатель',effective_at=INSTANT)

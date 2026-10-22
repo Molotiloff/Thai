@@ -11,9 +11,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const p = period(await searchParams);
   const data = await apiGet<Row>('/reports/dashboard?period=' + p);
   const profit = data.profit as Row;
+  const rates = rows(data.internal_rates);
   const cash: CashCurrencyCard[] = rows(data.cash).map(row => ({
     instrumentCode: String(row.instrument_code), label: labels[String(row.instrument_code)] ?? String(row.instrument_code),
-    amount: money(row.balance), carryingUsdt: money(row.carrying_usdt), unvaluedAmount: money(row.unvalued_quantity),
+    amount: money(row.balance), internalRate: (() => { const rate = rates.find(r => r.instrument === row.instrument_code)?.quoted_rate; return rate == null ? 'Не сформирован' : money(rate); })(), rateUnit: String(row.instrument_code).startsWith('THB') ? 'THB/USDT' : 'USDT/ед.', unvaluedAmount: money(row.unvalued_quantity),
     hasUnvalued: !!row.unvalued_quantity && !/^0(?:\.0+)?$/.test(String(row.unvalued_quantity)),
     href: '/operations?account_id=' + encodeURIComponent(String(row.ledger_account_id)),
   }));
@@ -34,7 +35,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       ]} action={<Link className={styles.link} href={`/profit?period=${p}`}>Открыть отчёт<Icon name="chevron-right" size={13}/></Link>}/>
       <CurrenciesPanel currencies={cash}/>
     </div>
-    <Notice>Остатки и задолженности показаны на текущий момент, прибыль за выбранный месяц. Наличный и безналичный бат учитываются отдельно. Себестоимость в USDT.</Notice>
+    <Notice>Остатки и задолженности показаны на текущий момент, прибыль за выбранный месяц. Наличный и безналичный бат учитываются отдельно. Внутренний курс считается по объёму проведённых покупок и продаж.</Notice>
     <div className={styles.split}>
       <Panel title="Клиентские обязательства" action={<Link className={styles.link} href="/loans">Займы<Icon name="chevron-right" size={13}/></Link>}>
         <Table data={rows(data.wallets)} columns={[{key:'instrument_code',title:'Счёт'},{key:'exchange_owes',title:'Обменник должен',amount:true},{key:'clients_owe',title:'Клиенты должны',amount:true},{key:'partner_loans',title:'Партнеры (сальдо)',amount:true}]}/>

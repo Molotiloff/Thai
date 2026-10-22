@@ -64,7 +64,7 @@ class OperationPostingService:
             await prepare(uow)
         state = await uow.accounts.lock_state(command.accounts)
         quotes=tuple(valuation_quotes(state) if callable(valuation_quotes) else valuation_quotes)
-        instruments=tuple(sorted({q.instrument for q in quotes if q.currency=='THB' and q.instrument}))
+        instruments=tuple(sorted({q.instrument for q in quotes if q.currency!='USDT' and q.instrument}))
         if instruments:
             extra=await uow.accounts.valuation_accounts(instruments)
             state=await uow.accounts.lock_state(tuple(sorted(set(command.accounts)|set(extra)))) if extra else state

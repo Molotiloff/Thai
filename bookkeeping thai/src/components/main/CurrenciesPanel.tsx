@@ -3,7 +3,7 @@ import { Icon } from '@/components/ui/Icon';
 import styles from './CurrenciesPanel.module.css';
 
 export interface CashCurrencyCard {
-  instrumentCode: string; label: string; amount: string; carryingUsdt: string;
+  instrumentCode: string; label: string; amount: string; internalRate: string; rateUnit: string;
   unvaluedAmount: string; hasUnvalued: boolean; href: string;
 }
 export function CurrenciesPanel({ currencies }: { currencies: CashCurrencyCard[] }) {
@@ -13,7 +13,7 @@ export function CurrenciesPanel({ currencies }: { currencies: CashCurrencyCard[]
       <div className={styles.currencyTop}><span className={styles.currencyLabel}>{currency.label}</span><Icon name={currency.instrumentCode === 'THB_BANK' ? 'building' : currency.instrumentCode === 'USDT' ? 'coins' : 'cash'} size={16}/></div>
       <span className={styles.currencyAmount}>{currency.amount}</span>
       <dl className={styles.currencyRows}>
-        <div className={styles.currencyRow}><dt className={styles.currencyRowLabel}>Себестоимость USDT</dt><dd className={styles.currencyRowValue}>{currency.carryingUsdt}</dd></div>
+        <div className={styles.currencyRow}><dt className={styles.currencyRowLabel}>Внутренний курс {currency.rateUnit}</dt><dd className={styles.currencyRowValue}>{currency.internalRate}</dd></div>
         {currency.hasUnvalued && <div className={styles.currencyRow}><dt className={styles.currencyRowLabel}>Без оценки</dt><dd className={styles.currencyRowValue}>{currency.unvaluedAmount}</dd></div>}
       </dl>
       <Link className={styles.historyLink} href={currency.href}>Движения по счёту<Icon name="chevron-right" size={12}/></Link>

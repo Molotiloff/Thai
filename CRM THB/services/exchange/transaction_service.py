@@ -13,8 +13,6 @@ from domain.finance.models import (
     InvalidPosting,
     JournalLine,
     OperationCommand,
-    PostingMode,
-    PostingPlan,
     Side,
     Valuation,
     canonical_json,
@@ -451,6 +449,12 @@ class TradingService:
                 currency = accounts[side]["currency"]
                 leg = attributes[side]
                 rate = confirmations.get(side,{}).get('quoted_rate') or leg.get("quoted_rate")
+                other = attributes['pay' if side=='receive' else 'receive']
+                if rate is None and currency!='USDT' and other['instrument']=='USDT':
+                    with localcontext() as calculation:
+                        calculation.prec=80
+                        rate=rounded(decimal(leg['quantity'])/decimal(other['quantity']) if currency=='THB'
+                            else decimal(other['quantity'])/decimal(leg['quantity']),18)
                 if rate is not None or currency == "USDT":
                     prepared[side] = FxQuote(currency, decimal(rate if rate is not None else 1),
                         "units_per_usdt" if currency == "THB" else "usdt_per_unit", leg["instrument"])
@@ -474,7 +478,7 @@ class TradingService:
                 prepared[missing] = FxQuote(currency, rate,
                     "units_per_usdt" if currency == "THB" else "usdt_per_unit", attributes[missing]["instrument"])
             if len(prepared) != 2:
-                raise MissingMarketQuote("Для пары без USDT нужна оценка хотя бы одной валюты в USDT. Укажите её курс один раз через /курс.")
+                raise MissingMarketQuote("Для пары без USDT нужна оценка хотя бы одной валюты в USDT. Сначала проведите обмен с USDT для формирования внутреннего курса.")
 
         def build(state):
             source_qty, target_qty = (
@@ -644,38 +648,6 @@ class TradingService:
                 'reversal_operation_id':reversed_operation.id}
         return await self._commands.execute(key=key, actor_id=actor_id, kind='trade_correct',
             payload=payload, action=action, permission='deal.post')
-
-    async def set_rate(
-        self, *, key, actor_id, instrument, quoted_rate, business_date, effective_at
-    ):
-        accounts = await self._queries.accounts(
-            None, instrument, "USDT" if instrument != "USDT" else "THB_CASH", "cash"
-        )
-        currency = accounts["receive"]["currency"]
-        quote = FxQuote(
-            currency,
-            decimal(quoted_rate),
-            "units_per_usdt" if currency == "THB" else "usdt_per_unit",
-            instrument,
-        )
-        command = OperationCommand(
-            key,
-            "market_rate",
-            actor_id,
-            business_date,
-            effective_at,
-            (),
-            canonical_json({"instrument": instrument, "rate": quote.quoted_rate}),
-            mode=PostingMode.MEMORANDUM,
-        )
-
-        async def save(operation_id, uow, plan):
-            await uow.clients.guard_directory(actor_id, "rate:" + key, "rates.manage")
-            await uow.trades.set_quote(operation_id, instrument, quote, actor_id, effective_at)
-
-        return await self._posting.post(
-            command, lambda state: PostingPlan((), PostingMode.MEMORANDUM), document=CallbackDocument(save)
-        )
 
     async def watch(self, *, key, actor_id, deal_id, chat_id, address, our_address, timeout_at):
         return await self._commands.execute(

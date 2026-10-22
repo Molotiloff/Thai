@@ -104,17 +104,9 @@ class TradingQueries:
             WHERE t.chat_id=$1 AND t.message_id=$2 AND o.kind='fx_trade' LIMIT 1
         """, chat_id, message_id)
 
-    async def rates(self, *, at=None):
-        rows = await self._pool.fetch("""
-            SELECT i.code AS instrument,i.currency_code,q.quoted_rate,q.quoted_direction,q.usdt_per_unit,q.effective_at
-            FROM instruments i LEFT JOIN LATERAL (
-                SELECT r.* FROM market_quotes m JOIN fx_rate_snapshots r ON r.id=m.rate_snapshot_id
-                    JOIN active_financial_originals o ON o.id=m.operation_id
-                WHERE m.instrument_code=i.code AND r.effective_at<=coalesce($1::timestamptz,clock_timestamp())
-                ORDER BY r.effective_at DESC,m.id DESC LIMIT 1
-            ) q ON TRUE WHERE i.is_active ORDER BY i.code
-        """, at)
-        return [dict(row) for row in rows]
+    async def internal_rates(self, *, at=None):
+        from db_asyncpg.internal_rates import InternalRates
+        return await InternalRates(self._pool).rows(at)
 
     async def client_by_chat(self, chat_id):
         return await self._pool.fetchval(

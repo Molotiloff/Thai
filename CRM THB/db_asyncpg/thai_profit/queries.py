@@ -7,6 +7,10 @@ class ProfitQueries:
     def __init__(self, pool):
         self._pool = pool
 
+    async def internal_quote(self,instrument,at=None,key=None):
+        from db_asyncpg.internal_rates import InternalRates
+        return await InternalRates(self._pool).quote(instrument,at,key)
+
     async def accounts(self):
         rows = await self._pool.fetch(
             "SELECT id,purpose,party_id FROM ledger_accounts WHERE purpose IN ('trading_income','trading_loss','platform_commission_expense','platform_commission_payable','fx_income','fx_loss','retained_result','owner_profit_payable')"
@@ -205,7 +209,9 @@ class ProfitQueries:
             row = await connection.fetchrow(
                 """
                 SELECT count(*) AS count,coalesce(sum(c.platform_fee_usdt),0) AS fee_usdt,
-                    coalesce(sum(c.daniyar_share_usdt),0) AS daniyar_usdt,coalesce(sum(c.business_share_usdt),0) AS business_usdt
+                    coalesce(sum(c.daniyar_share_usdt),0) AS daniyar_usdt,coalesce(sum(c.business_share_usdt),0) AS business_usdt,
+                    coalesce(sum(c.daniyar_share_usdt) FILTER (WHERE c.daniyar_wallet_account_id IN
+                        (SELECT id FROM ledger_accounts WHERE purpose='client_wallet')),0) AS daniyar_credited_usdt
                 FROM best_change_calculations c JOIN deals d ON d.id=c.deal_id JOIN active_financial_originals o ON o.id=d.operation_id
                 WHERE o.business_date>=$1 AND o.business_date<($1::date+interval '1 month')
             """,
@@ -227,6 +233,10 @@ class ProfitQueries:
                     bindings["best_change_buffer"]["ledger_account_id"],
                 )
             )
+            result["daniyar_balance"] = dict(await connection.fetchrow(
+                "SELECT * FROM posted_account_balances WHERE account_id=$1",
+                bindings["daniyar_balance"]["ledger_account_id"],
+            ))
             return result
 
     async def revisions(self, period):

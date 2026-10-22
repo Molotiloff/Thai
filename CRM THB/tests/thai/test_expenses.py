@@ -404,9 +404,8 @@ async def test_fifo_across_expenses_historical_quotes_and_wrong_wallet_rollback(
     await fund(finance, quantity=Decimal(2000))
     first = await record(finance, payer="business")
     second = await record(finance, key="second", payer="business", rate="40")
-    await finance["app"].trading.set_rate(
-        **common(finance, "market"), instrument="THB_CASH", quoted_rate="50"
-    )
+    from tests.thai.test_internal_exchange_rates import customer, exchange
+    await exchange(finance,await customer(finance,'market'),'market','THB_CASH','5000','USDT','100')
     first_id = await finance["pool"].fetchval(
         "SELECT id FROM expenses WHERE operation_id=$1", first.id
     )

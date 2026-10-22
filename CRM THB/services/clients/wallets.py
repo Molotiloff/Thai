@@ -1,4 +1,3 @@
-from decimal import Decimal
 from typing import cast
 
 from domain.deferred_valuation import cash_wallet_change
@@ -15,7 +14,6 @@ from domain.finance.models import (
     exact,
     rounded,
 )
-from domain.wallet_valuation import liability_change
 from services.clients.ports import ClientUnitOfWork, WalletReadPort
 from services.exchange.ledger import TradingUnitOfWork
 from services.finance.posting import CallbackDocument, OperationPostingService
@@ -42,8 +40,8 @@ class WalletCashService:
         if accounts['currency'] == 'USDT' or quoted_rate is not None:
             quote = FxQuote(accounts['currency'], decimal(quoted_rate if quoted_rate is not None else 1),
                 'units_per_usdt' if accounts['currency']=='THB' else 'usdt_per_unit', instrument)
-        if deposit and quote is None and accounts['currency']!='THB':
-            raise InvalidPosting('Для поступления валюты нужен ручной курс относительно USDT')
+        if quote is None:
+            quote = await self._queries.internal_quote(instrument,effective_at,key)
         details = {'client': client_id, 'instrument': instrument, 'quantity': quantity,
                    'quoted_rate': quote.quoted_rate if quote else None, 'comment': comment}
         if request_id is not None:
@@ -69,17 +67,14 @@ class WalletCashService:
             if not deposit and quantity>state.position(instrument).quantity:
                 state.position(instrument).withdrawal_cost(quantity)
             signed = quantity if deposit else -quantity
-            if accounts['currency']=='THB':
-                principal_delta,pending_delta=cash_wallet_change(wallet,signed,quote)
-            else:
-                principal_delta=liability_change(-wallet.native,-wallet.usdt,signed,quote)
-                pending_delta=Decimal(0)
+            principal_delta,pending_delta=cash_wallet_change(wallet,signed,quote)
             liability = abs(principal_delta)
             unvalued=abs(pending_delta)
-            cost = (quote.value(quantity) if quote else liability) if deposit else state.position(instrument).withdrawal_cost(quantity,unvalued=unvalued)
+            cost = (quote.value(quantity) if quote else liability) if deposit else state.position(instrument).withdrawal_cost(quantity,unvalued=min(quantity,state.position(instrument).unvalued))
+            cash_pending = pending_delta if deposit else -min(quantity,state.position(instrument).unvalued)
             lines = [
                 JournalLine(accounts['cash'], accounts['currency'], Side.DEBIT if deposit else Side.CREDIT,
-                    quantity, cost, Valuation.RATE if deposit and quote else Valuation.CARRYING, quote if deposit else None,unvalued=unvalued),
+                    quantity, cost, Valuation.RATE if deposit and quote else Valuation.CARRYING, quote if deposit else None,unvalued=abs(cash_pending)),
                 JournalLine(accounts['wallet'], accounts['currency'], Side.CREDIT if deposit else Side.DEBIT,
                     quantity, liability, Valuation.CARRYING,unvalued=unvalued),
             ]
@@ -89,8 +84,8 @@ class WalletCashService:
                 return (quote,)
             wallet=state.account(accounts['wallet'])
             valued_balance=-wallet.native+wallet.unvalued
-            if not deposit and accounts['currency']=='THB' and quantity> -wallet.unvalued and valued_balance>0 and wallet.usdt<0:
-                return (FxQuote('THB',rounded(valued_balance/(-wallet.usdt),18),'units_per_usdt',instrument),)
+            if not deposit and accounts['currency']!='USDT' and quantity> -wallet.unvalued and valued_balance>0 and wallet.usdt<0:
+                return (FxQuote(accounts['currency'],rounded(valued_balance/(-wallet.usdt) if accounts['currency']=='THB' else (-wallet.usdt)/valued_balance,18),'units_per_usdt' if accounts['currency']=='THB' else 'usdt_per_unit',instrument),)
             return ()
         return await self._posting.post(command, build, prepare=prepare,
             document=CallbackDocument(save) if request_id is not None else document, work=work,valuation_quotes=valuation_quotes)

@@ -218,7 +218,7 @@ class JournalLine:
         exact(self.native)
         exact(self.usdt)
         exact(self.unvalued)
-        if self.unvalued < 0 or self.unvalued > self.native or (self.unvalued and self.currency!='THB'):
+        if self.unvalued < 0 or self.unvalued > self.native or (self.unvalued and self.currency=='USDT'):
             raise InvalidPosting('Некорректная сумма без себестоимости')
         if self.account_id <= 0 or min(self.native, self.usdt) < 0 or self.native + self.usdt <= 0:
             raise InvalidPosting("Некорректная строка проводки")
@@ -274,7 +274,7 @@ class InventoryPosition:
         priced_quantity=quantity-unvalued
         priced_stock=self.quantity-self.unvalued
         if unvalued<0 or unvalued>min(quantity,self.unvalued) or priced_quantity>priced_stock:
-            raise InvalidPosting('Для использования батов без себестоимости нужна оценка операции')
+            raise InvalidPosting('Для использования неоценённой валюты нужен внутренний курс')
         if priced_quantity==0:
             return Decimal(0)
         if quantity == self.quantity:

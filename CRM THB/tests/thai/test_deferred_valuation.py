@@ -46,9 +46,9 @@ async def test_exchange_debt_is_settled_at_its_historical_cost_without_current_r
     assert (await wallet(finance,customer,instrument))['carrying_usdt']==-50
     await deposit(finance,customer,'2500',key='rest',instrument=instrument)
     row=await wallet(finance,customer,instrument)
-    assert row['balance']==750 and row['carrying_usdt']==0 and row['unvalued_quantity']==750
-    assert await balance(finance,instrument)==(4250,100)
-    assert await finance['pool'].fetchval('SELECT count(*) FROM fx_rate_snapshots')==rates
+    assert row['balance']==750 and row['carrying_usdt']==Decimal('21.42857143') and row['unvalued_quantity']==0
+    assert await balance(finance,instrument)==(4250,Decimal('121.42857143'))
+    assert await finance['pool'].fetchval('SELECT count(*) FROM fx_rate_snapshots')>rates
     assert await finance['pool'].fetchval("SELECT coalesce(sum(l.amount_usdt),0) FROM journal_lines l JOIN ledger_accounts a ON a.id=l.account_id WHERE a.purpose IN ('fx_income','fx_loss')")==0
 
 

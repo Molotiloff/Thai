@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import asyncpg
 
-from domain.finance.models import FxQuote, InvalidPosting, ReversalBlocked, canonical_json
+from domain.finance.models import InvalidPosting, ReversalBlocked, canonical_json
 from services.exchange.ledger import MissingMarketQuote
 
 
@@ -177,42 +177,11 @@ class TradingRepository:
         )
 
     async def quote(self, instrument, effective_at):
-        row = await self._db.fetchrow(
-            """
-            SELECT r.* FROM market_quotes q JOIN fx_rate_snapshots r ON r.id=q.rate_snapshot_id
-                JOIN financial_operations o ON o.id=q.operation_id
-            WHERE q.instrument_code=$1 AND r.effective_at<=$2 AND o.status='posted'
-            ORDER BY r.effective_at DESC,q.id DESC LIMIT 1
-        """,
-            instrument,
-            effective_at,
-        )
-        if row is None:
-            raise MissingMarketQuote(f"Нет курса {instrument}: укажите вручную или сохраните курс в БД")
-        return FxQuote(
-            row["currency_code"], row["quoted_rate"], row["quoted_direction"], instrument
-        )
-
-    async def set_quote(self, operation_id, instrument, quote, actor_id, effective_at):
-        rate_id = await self._db.fetchval(
-            """
-            INSERT INTO fx_rate_snapshots(currency_code,instrument_code,quoted_direction,quoted_rate,usdt_per_unit,effective_at,created_by)
-            VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id
-        """,
-            quote.currency,
-            instrument,
-            quote.direction,
-            quote.quoted_rate,
-            quote.usdt_per_unit,
-            effective_at,
-            actor_id,
-        )
-        await self._db.execute(
-            "INSERT INTO market_quotes(instrument_code,rate_snapshot_id,operation_id) VALUES ($1,$2,$3)",
-            instrument,
-            rate_id,
-            operation_id,
-        )
+        from db_asyncpg.internal_rates import InternalRates
+        quote = await InternalRates(self._db).quote(instrument,effective_at)
+        if quote is None:
+            raise MissingMarketQuote(f"Внутренний курс {instrument} ещё не сформирован покупками и продажами")
+        return quote
 
     async def cancelled(self, deal_id, operation_id, reason, replacement):
         await self._db.execute(

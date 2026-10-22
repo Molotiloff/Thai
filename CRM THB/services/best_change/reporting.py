@@ -33,7 +33,8 @@ def format_month_report(
             f"Сделок: {report['count']}\nФонд прибыли: {report['daniyar_usdt']+report['business_usdt']} USDT\n"
             f"Доля Данияра: {report['daniyar_usdt']} USDT\nПрибыль обменника: {report['business_usdt']} USDT\n"
             f"Комиссия CoinDrop: {report['fee_usdt']} USDT\n"
-            f"Перенесено на Баланс Данияр за период: {transfers} USDT\n"
+            f"Зачислено Данияру сразу: {report.get('daniyar_credited_usdt',0)} USDT\n"
+            f"Исторические переносы Данияру: {transfers} USDT\n"
             f"Текущий буфер BestChange: {report['buffer']['balance']} USDT")
     if report.closure_id is not None:
         heading = f"✅ BestChange закрыт · {report.period_month:%m.%Y} · #{report.closure_id}"

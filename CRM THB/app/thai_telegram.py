@@ -435,7 +435,7 @@ class ThaiTelegramDelivery:
 
     async def deliver_best_change(self,deal_id):
         from db_asyncpg.thai_profit.repository import ProfitRepository
-        from handlers.best_change import format_best_change_result
+        from handlers.best_change import format_best_change_profit, format_best_change_result
         context = await self._app.profit_queries.best_change_context(deal_id)
         root = context['root_id']
         reference = await self._app.pool.fetchval('SELECT external_reference FROM deals WHERE id=$1',root)
@@ -448,6 +448,12 @@ class ThaiTelegramDelivery:
         buffer_chats = set(await self._app.pool.fetchval(
             "SELECT coalesce(array_agg(telegram_chat_id),ARRAY[]::bigint[]) FROM client_chat_links WHERE client_id=$1 AND is_active",
             bindings['best_change_buffer']['client_id']))
+        daniyar_chats = set(await self._app.pool.fetchval(
+            "SELECT coalesce(array_agg(telegram_chat_id),ARRAY[]::bigint[]) FROM client_chat_links WHERE client_id=$1 AND is_active",
+            bindings['daniyar_balance']['client_id']))
+        if context['active']['attributes'].get('daniyar_settlement') != 'immediate':
+            daniyar_chats.clear()
+        chats.update(daniyar_chats)
         chats.update(buffer_chats)
         if source_chat:
             chats.add(source_chat)
@@ -458,10 +464,11 @@ class ThaiTelegramDelivery:
                 async with self._app.pool.acquire() as db,db.transaction():
                     await db.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',f'best-change-card:{root}:{chat_id}')
                     current = await ProfitRepository(db).best_change_context(root)
-                    link = await db.fetchrow("SELECT * FROM telegram_message_links WHERE deal_id=$1 AND chat_id=$2 AND purpose='best_change'",root,chat_id)
+                    purpose = 'best_change_profit' if chat_id in daniyar_chats else 'best_change'
+                    link = await db.fetchrow("SELECT * FROM telegram_message_links WHERE deal_id=$1 AND chat_id=$2 AND purpose=$3",root,chat_id,purpose)
                     await self._update_card(db,deal_id=root,chat_id=chat_id,
-                        text=format_best_change_result(current,include_internal=chat_id in buffer_chats or chat_id in (source_chat,self._operations_chat_id)),
-                        markup=None,purpose='best_change',link=link,parse_mode=None)
+                        text=format_best_change_profit(current) if chat_id in daniyar_chats else format_best_change_result(current,include_internal=chat_id in buffer_chats or chat_id in (source_chat,self._operations_chat_id)),
+                        markup=None,purpose=purpose,link=link,parse_mode=None)
         except TelegramAPIError:
             raise DeliveryError('best_change_delivery_failed') from None
 

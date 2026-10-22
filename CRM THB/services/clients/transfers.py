@@ -3,9 +3,9 @@
 from decimal import localcontext
 from typing import cast
 
+from domain.deferred_valuation import transfer_wallet_value
 from domain.finance.fx_result import balance_with_fx
 from domain.finance.models import (
-    FxQuote,
     InvalidPosting,
     JournalLine,
     OperationCommand,
@@ -15,9 +15,7 @@ from domain.finance.models import (
     decimal,
     exact,
     revision_details,
-    rounded,
 )
-from domain.wallet_valuation import liability_change
 from services.clients.ports import ClientUnitOfWork, WalletReadPort
 from services.finance.posting import OperationPostingService
 
@@ -50,14 +48,7 @@ class ClientWalletTransferService:
         quantity = exact(decimal(quantity), source["precision"])
         if quantity <= 0:
             raise InvalidPosting("Сумма перевода должна быть положительной")
-        if source["currency"] != "USDT" and quoted_rate is None:
-            raise InvalidPosting("Для перевода валюты нужен курс относительно USDT")
-        quote = FxQuote(
-            source["currency"],
-            decimal(quoted_rate if quoted_rate is not None else 1),
-            "units_per_usdt" if source["currency"] == "THB" else "usdt_per_unit",
-            instrument,
-        )
+        quote = await self._queries.internal_quote(instrument,effective_at,key)
         command = OperationCommand(
             key,
             "wallet_transfer",
@@ -74,7 +65,7 @@ class ClientWalletTransferService:
                         "target_client": target_client_id,
                         "instrument": instrument,
                         "quantity": quantity,
-                        "quoted_rate": quote.quoted_rate,
+                        "quoted_rate": quote.quoted_rate if quote else None,
                         "comment": comment,
                         **({"transfer_root_id": transfer_root_id} if transfer_root_id is not None else {}),
                     },
@@ -94,13 +85,7 @@ class ClientWalletTransferService:
 
         def build_lines(state):
             sender, recipient = state.account(source["wallet"]), state.account(target["wallet"])
-            principal = -liability_change(-sender.native, -sender.usdt, -quantity, quote)
-            carrying_quote = FxQuote(
-                source["currency"], rounded(principal / quantity, 18), instrument=instrument
-            )
-            target_value = liability_change(
-                -recipient.native, -recipient.usdt, quantity, carrying_quote
-            )
+            principal,source_pending,target_value,target_pending=transfer_wallet_value(sender,recipient,quantity,quote)
             return balance_with_fx(
                 (
                     JournalLine(
@@ -109,7 +94,7 @@ class ClientWalletTransferService:
                         Side.DEBIT,
                         quantity,
                         principal,
-                        Valuation.CARRYING,
+                        Valuation.CARRYING,unvalued=abs(source_pending),
                     ),
                     JournalLine(
                         recipient.id,
@@ -117,11 +102,11 @@ class ClientWalletTransferService:
                         Side.CREDIT,
                         quantity,
                         target_value,
-                        Valuation.CARRYING,
+                        Valuation.CARRYING,unvalued=abs(target_pending),
                     ),
                 ),
                 income_account_id=source["fx_income"],
                 loss_account_id=source["fx_loss"],
             )
 
-        return await self._posting.post(command, build, prepare=prepare, work=work,valuation_quotes=(quote,))
+        return await self._posting.post(command, build, prepare=prepare, work=work,valuation_quotes=(quote,) if quote else ())

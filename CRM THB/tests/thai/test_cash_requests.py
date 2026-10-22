@@ -24,7 +24,6 @@ async def send(commands, text, message_id, **kwargs):
 @pytest.mark.parametrize('suffix,code', SUFFIXES.items())
 async def test_cash_request_full_cycle_all_instruments(finance, suffix, code):
     commands = ThaiTelegramCommands(finance['app'], finance['config'])
-    await send(commands, f'/курс {code} {1 if code=="USDT" else 35}', 1)
     for sequence,prefix,quantity in ((100,'деп','200.25'),(200,'выд','50.12')):
         before = await balance(finance, code)
         card = await send(commands, f'/{prefix}{suffix} (200+0.25)' if prefix=='деп' else f'/{prefix}{suffix} {quantity}', sequence)
@@ -123,7 +122,6 @@ async def test_cash_api_creation_ready_settlement_and_reversal_share_ledger(fina
         assert await balance(finance,'THB_CASH')==(0,0)
 
         assert (await http.post(f'/api/v1/deals/{deal_id}/ready',json={'idempotency_key':'api-ready'})).status_code==200
-        await send(commands, '/курс бат 35', 2)
         result = await http.post(f'/api/v1/cash-requests/{deal_id}/settle',json={'idempotency_key':'api-settle',
             'effective_at':INSTANT.isoformat(),'instrument':'THB_CASH','signed_quantity':'1000.25'})
         assert result.status_code==200, result.text
@@ -145,7 +143,6 @@ async def test_cash_mismatch_and_insufficient_cash_leave_request_ready(finance):
     for command in ('/бат 1000 Б-000001', '/бат -999 Б-000001', '/USDT -1000 Б-000001'):
         with pytest.raises(InvalidPosting, match='не совпадают'):
             await send(commands, command, 2)
-    await send(commands, '/курс бат 35', 3)
     with pytest.raises(InsufficientCash):
         await send(commands, '/бат -1000 Б-000001', 4)
     assert (await finance['app'].trading_queries.detail(1))['effective_status']=='ready'

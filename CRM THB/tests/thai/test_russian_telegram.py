@@ -65,7 +65,6 @@ def test_help_and_expression_contract():
 async def test_russian_wallet_exchange_cash_and_retry(finance):
     _, send = bot(finance)
     await send("/регистрация Тестовый клиент")
-    await send("/курс бат 35")
     assert "0.00 бат" in await send("/кошелек")
     assert await send("/дай") == "Все счета нулевые. Посмотреть всё: /кошелек"
     first = await send("/пбат 3600 от 100 срочно", message_id=100)
@@ -76,7 +75,7 @@ async def test_russian_wallet_exchange_cash_and_retry(finance):
     assert await balance(finance, "THB_CASH") == (0, 0)
     assert await balance(finance, "USDT") == (0, 0)
     await post_cash(send, finance, "/депбат 3,6к ! касса", message_id=101)
-    assert await balance(finance, "THB_CASH") == (3600, Decimal("102.85714286"))
+    assert await balance(finance, "THB_CASH") == (3600, Decimal("100"))
     await post_cash(send, finance, "/депбат 3,6к ! касса", message_id=101)
     assert (await balance(finance, "THB_CASH"))[0] == 3600
     assert "остаток 0" in await send("/выписка бат")
@@ -90,8 +89,6 @@ async def test_russian_wallet_exchange_cash_and_retry(finance):
 async def test_old_dollars_and_corrections_do_not_change_cash_or_profit(finance):
     _, send = bot(finance)
     await send("/регистрация Доллары")
-    await send("/курс USD 1")
-    await send("/курс USDW 1,01")
     await send("/пд 100 от 100")
     await send("/пб 100 от 101")
     wallet = await send("/дай")
@@ -99,7 +96,6 @@ async def test_old_dollars_and_corrections_do_not_change_cash_or_profit(finance)
     await send("/USD 100 возврат долга", message_id=200)
     await send("/USD 100 возврат долга", message_id=200)
     await send("/USDT (2+3*4) корректировка")
-    await send("/курс руб 0,01")
     await send("/RUB -100")
     assert "0.00 usd" in await send("/кошелек")
     assert "215.000000 usdt" in await send("/дай")
@@ -115,7 +111,6 @@ async def test_client_transfer_defaults_to_baht_and_keeps_cash(finance):
     _,send=bot(finance)
     await send('/регистрация Отправитель')
     await send('/регистрация Петров Иван',chat_id=-124)
-    await send('/курс бат 35')
     source=await finance['app'].trading_queries.client_by_chat(-123)
     target=await finance['app'].trading_queries.client_by_chat(-124)
     amount,code,name=WalletsHandler._parse_transfer('/перевод 1к Петров Иван',
@@ -139,10 +134,9 @@ async def test_future_market_rate_is_not_needed_to_settle_exchange_debt(finance)
     await send("/регистрация Курсы")
     await send("/пбат 3500 от 100")
     assert await finance["pool"].fetchval("SELECT count(*) FROM deals") == 1
-    await finance["app"].trading.set_rate(
-        key="future", actor_id=finance["actor"], instrument="THB_CASH", quoted_rate="35",
-        business_date=(INSTANT + timedelta(days=1)).date(), effective_at=INSTANT + timedelta(days=1),
-    )
+    from tests.thai.test_internal_exchange_rates import customer, exchange
+    future=await customer(finance,'future')
+    await exchange(finance,future,'future','THB_CASH','5000','USDT','100',instant=INSTANT+timedelta(days=1))
     await post_cash(send,finance,"/депбат 3500",message_id=100)
     assert await balance(finance, "THB_CASH") == (3500, 100)
 
@@ -204,19 +198,14 @@ async def test_cash_router_uses_existing_handler_and_authorized_status(finance, 
     await telegram.session.close()
 
 
-async def set_all_rates(send):
-    for alias, quote in (("бат", "35"), ("безнал", "35"), ("USD", "1"),
-                         ("USDW", "1.01"), ("евро", "1.1"), ("евро500", "1.2"), ("руб", "0.01")):
-        await send(f"/курс {alias} {quote}")
-
-
 async def test_all_accept_short_pairs_classify_from_exchange_perspective(finance):
     from app.thai_russian_commands import PAY, RECEIVE
     from db_asyncpg.thai_trading.workspace import DealWorkspaceQueries
 
     _, send = bot(finance)
     await send("/регистрация Все направления")
-    await set_all_rates(send)
+    from tests.thai.test_internal_exchange_rates import seed_internal_rates
+    await seed_internal_rates(finance)
     client_id = await finance["app"].trading_queries.client_by_chat(-123)
     from domain.deal_policy import exchange_type
 
@@ -243,7 +232,7 @@ async def test_all_accept_short_pairs_classify_from_exchange_perspective(finance
     workspace = DealWorkspaceQueries(finance["pool"])
     assert counts == {"sale": 12, "purchase": 12, "conversion": 32}
     for kind, count in counts.items():
-        result = await workspace.workspace(kind=kind, limit=100)
+        result = await workspace.workspace(kind=kind, query="Все направления", limit=100)
         assert len(result["items"]) == count
         assert result["summaries"] == [{"status": "posted", "count": count}]
         assert all(row["kind"] == kind and row["attributes"]["operation_type"] == kind
@@ -255,7 +244,6 @@ async def test_all_deposit_withdraw_commands_confirm_and_appear_in_crm(finance):
     from db_asyncpg.thai_trading.workspace import DealWorkspaceQueries
     _, send = bot(finance)
     await send("/регистрация Все валюты")
-    await set_all_rates(send)
     sequence=100
     for suffix,code in SUFFIXES.items():
         for prefix,quantity,expected_balance in (("деп",200,200),("выд",50,150)):
@@ -276,7 +264,6 @@ async def test_corrected_trade_recalculates_type_from_replacement_pair(finance):
 
     _, send = bot(finance)
     await send("/регистрация Исправление")
-    await send("/курс бат 35")
     await send("/пбат 3500 от 100")
     original = (await finance["app"].trading_queries.list())[0]
     await finance["app"].trading.reverse(

@@ -51,12 +51,12 @@ export function NewDealView({clients,session,initialType='sale'}:{clients:Client
     {label:'Получаем / переводим',text:money(values['receive.quantity']??values.quantity)},
     {label:'Выдаём',text:money(values['pay.quantity'])},
     ...(isExchange?[{label:'Прямой курс',text:values['exchange.rate']||'—'},{label:'Обратный курс',text:values['exchange.inverse_rate']||'—'},{label:'Номер заявки',text:'Присваивается автоматически'}]:[{label:'Комиссия перевода THB',text:money(values.fee??'0')}]),
-    {label:'Себестоимость и результат',text:'USDT · по исторической оценке при проведении'}
+    {label:'Учёт в USDT',text:'Курс определяется по обменам'}
   ];
   return <><NewDealHeader formId="new-deal" disabled={!hydrated||busy||submitted||!permitted}/><DealTypeTabs active={type} onChange={change} disabled={!hydrated||busy}/><div className={layout.grid}>
     <DealDataCard title={OPERATIONS.find(o=>o.type===type)?.label??type} note={spec.note}>
       {permitted?<ActionForm key={type} spec={spec} formId="new-deal" className={styles.form} submitLabel="Добавить сделку" onValuesChange={setValues} deriveValues={isExchange?deriveValues:undefined} onBusyChange={setBusy} onSuccess={result=>{setSubmitted(true);router.push(result.deal_id?'/deals/'+result.deal_id:'/operations/'+result.id);}}/>:<p>Ваша роль позволяет просматривать сделки. Для проведения требуется право {spec.permission}.</p>}
     </DealDataCard>
-    <AutoCalcCard rows={calcRows} note={type==='best_change'?'Расчёт выполняет backend по тем же правилам, что применяются при проведении.':isExchange?'Введите одну сумму и прямой либо обратный курс пары — вторая сумма подставится автоматически. Себестоимость в USDT определяется отдельно, по тем же правилам, что и в боте.':'Кошелёк клиента может уходить в минус. Номер документа присваивается автоматически.'}/>
+    <AutoCalcCard rows={calcRows} note={type==='best_change'?'Расчёт выполняет backend по тем же правилам, что применяются при проведении.':isExchange?'Введите одну сумму и прямой либо обратный курс пары — вторая сумма подставится автоматически. Оценка в USDT определяется автоматически, по тем же правилам, что и в боте.':'Кошелёк клиента может уходить в минус. Номер документа присваивается автоматически.'}/>
   </div></>;
 }

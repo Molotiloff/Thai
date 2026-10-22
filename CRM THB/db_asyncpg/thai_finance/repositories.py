@@ -208,8 +208,8 @@ class AccountsRepository:
     async def valuation_accounts(self,instruments):
         rows=await self._connection.fetch("""
             SELECT a.id FROM ledger_accounts a JOIN posted_account_balances b ON b.account_id=a.id
-            WHERE a.instrument_code=ANY($1::text[]) AND
-                (a.purpose='cash' OR (a.purpose='client_wallet' AND b.unvalued_native>0)) ORDER BY a.id
+            WHERE a.purpose='retained_result' OR (a.instrument_code=ANY($1::text[]) AND
+                (a.purpose='cash' OR b.unvalued_native<>0)) ORDER BY a.id
         """,list(instruments))
         return tuple(row['id'] for row in rows)
 

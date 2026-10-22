@@ -54,7 +54,9 @@ async def test_best_change_cash_and_close_no_duplicate_profit(finance):
     assert await deal(finance) == posted
     assert await balance(finance, "USDT") == (0, 0)
     assert await balance(finance, "THB_CASH") == (3600, Decimal("102.85714286"))
-    assert await ledger(finance, "best_change_buffer") == 1
+    assert await ledger(finance, "best_change_buffer") == 0
+    wallets_before = await finance["app"].client_queries.wallets(dany)
+    assert next(w["balance"] for w in wallets_before if w["instrument_code"] == "USDT") == 1
     assert (await finance["app"].profit_queries.report(PERIOD))["net_profit_usdt"] == 1
     closed = await close(finance)
     assert await close(finance) == closed
@@ -65,7 +67,7 @@ async def test_best_change_cash_and_close_no_duplicate_profit(finance):
     assert (await finance["app"].profit_queries.report(PERIOD))["net_profit_usdt"] == 1
     snapshot = await finance["app"].profit_queries.closure(PERIOD)
     assert [a["amount_usdt"] for a in snapshot["accruals"]] == [Decimal(".5"), Decimal(".5")]
-    assert len(snapshot["best_change_transfer"]) == 1
+    assert snapshot["best_change_transfer"] == []
     assert snapshot['sources'] and all(row['purpose'] and row['business_date'] for row in snapshot['sources'])
     with pytest.raises(PeriodClosed):
         await deal(finance, key="closed-month")
@@ -245,7 +247,7 @@ async def test_profit_formula_interest_capital_loans_and_payments(finance):
 
 
 async def test_platform_payment_storno_and_dependencies(finance):
-    await configure(finance)
+    _, dany = await configure(finance)
     await fund(finance, instrument="USDT", quantity=Decimal(101))
     posted = await deal(finance)
     paid = await finance["app"].profit.pay(
@@ -264,6 +266,7 @@ async def test_platform_payment_storno_and_dependencies(finance):
     )
     assert await ledger(finance, "platform_commission_payable") == 0
     assert await balance(finance, "USDT") == (101, 101)
+    assert next(w["balance"] for w in await finance["app"].client_queries.wallets(dany) if w["instrument_code"]=="USDT")==0
 
 
 async def test_expense_and_interest_correction_in_profit_revision(finance):
@@ -485,9 +488,11 @@ async def test_profit_api_and_telegram_delivery(finance):
 
     class Bot:
         calls = []
+        messages = []
 
         async def send_message(self, chat_id, text, **kwargs):
             self.calls.append(chat_id)
+            self.messages.append((chat_id,text))
             return SimpleNamespace(message_id=1)
 
         async def edit_message_text(self, *args, **kwargs):
@@ -503,5 +508,25 @@ async def test_profit_api_and_telegram_delivery(finance):
         await delivery.deliver(event)
         await delivery.deliver(event)
         await outbox.delivered(event)
-    assert bot.calls.count(-100) == 2
+    assert bot.calls.count(-100) == 1
     assert bot.calls.count(-200) == 1
+    personal = next(text for chat_id,text in bot.messages if chat_id==-200)
+    assert "Прибыль с Бест" in personal and "Начислено: 1" in personal
+    assert "Курс клиента" not in personal
+
+
+async def test_coindrop_waits_for_month_end_and_direct_profit_has_statement_comment(finance):
+    _, dany = await configure(finance)
+    await fund(finance, instrument="USDT", quantity=Decimal(200))
+    posted = await deal(finance)
+    statement = await finance['app'].client_queries.export_transactions(client_id=dany)
+    assert any(row['operation_id']==posted.id and row['comment']=='Прибыль с Бест' and row['amount']==1 for row in statement)
+    fee = Decimal('0.85714286')
+    assert await ledger(finance,'platform_commission_payable')==fee
+    with pytest.raises(InvalidPosting):
+        await finance['app'].profit.pay(**common(finance,'early-fee'),recipient='platform',instrument='USDT',quantity='.5')
+    assert await ledger(finance,'platform_commission_payable')==fee
+    payment = await finance['app'].profit.pay(**common(finance,'monthly-fee',NOV),recipient='platform',instrument='USDT',quantity='.5')
+    assert await finance['app'].profit.pay(**common(finance,'monthly-fee',NOV),recipient='platform',instrument='USDT',quantity='.5')==payment
+    assert await ledger(finance,'platform_commission_payable')==fee-Decimal('.5')
+    assert next(w['balance'] for w in await finance['app'].client_queries.wallets(dany) if w['instrument_code']=='USDT')==1

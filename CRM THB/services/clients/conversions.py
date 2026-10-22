@@ -2,6 +2,7 @@ from dataclasses import replace
 from decimal import Decimal
 from typing import cast
 
+from domain.deferred_valuation import cash_wallet_change, transfer_wallet_value
 from domain.finance.fx_result import balance_with_fx
 from domain.finance.models import (
     FxQuote,
@@ -14,9 +15,7 @@ from domain.finance.models import (
     decimal,
     exact,
     revision_details,
-    rounded,
 )
-from domain.wallet_valuation import liability_change
 from services.clients.ports import ClientUnitOfWork
 
 
@@ -36,7 +35,7 @@ class WalletConversionService:
         fee,
         business_date,
         effective_at,
-        quoted_rate,
+        quoted_rate=None,
         physical=False,
         profit_revision_id=None,
     ):
@@ -50,7 +49,16 @@ class WalletConversionService:
         quantity, fee = exact(decimal(quantity), 2), exact(decimal(fee), 2)
         if quantity <= 0 or fee < 0:
             raise InvalidPosting("Нужна положительная сумма и неотрицательная комиссия")
-        quote = FxQuote("THB", decimal(quoted_rate), "units_per_usdt", source_instrument)
+        if quoted_rate is None:
+            quote=await self._queries.internal_quote(source_instrument,effective_at,key)
+            if quote is None:
+                quote=await self._queries.internal_quote(target_instrument,effective_at,key)
+            if quote is not None:
+                quote=replace(quote,instrument=source_instrument)
+        else:
+            quote=FxQuote("THB",decimal(quoted_rate),"units_per_usdt",source_instrument)
+        if fee and quote is None:
+            raise InvalidPosting('Для расчёта комиссии сначала нужен обмен, формирующий внутренний курс бата')
         ids = {
             source["wallet"],
             target["wallet"],
@@ -75,7 +83,7 @@ class WalletConversionService:
                         "target": target_instrument,
                         "quantity": quantity,
                         "fee": fee,
-                        "rate": quote.quoted_rate,
+                        "rate": quote.quoted_rate if quote else None,
                         "physical": physical,
                     },
                     profit_revision_id,
@@ -88,20 +96,11 @@ class WalletConversionService:
 
         def build(state):
             original, destination = state.account(source["wallet"]), state.account(target["wallet"])
-            principal = -liability_change(-original.native, -original.usdt, -quantity, quote)
-            fee_cost = (
-                -liability_change(
-                    -original.native - quantity, -original.usdt - principal, -fee, quote
-                )
-                if fee
-                else Decimal(0)
-            )
-            transfer_quote = FxQuote(
-                "THB", rounded(principal / quantity, 18), instrument=target_instrument
-            )
-            target_cost = liability_change(
-                -destination.native, -destination.usdt, quantity, transfer_quote
-            )
+            principal,source_pending,target_cost,target_pending=transfer_wallet_value(original,destination,quantity,quote)
+            after=replace(original,native=original.native+quantity,usdt=original.usdt+principal,
+                unvalued=original.unvalued-source_pending)
+            fee_delta,fee_pending=cash_wallet_change(after,-fee,quote) if fee else (Decimal(0),Decimal(0))
+            fee_cost=-fee_delta
             lines = [
                 JournalLine(
                     original.id,
@@ -109,10 +108,10 @@ class WalletConversionService:
                     Side.DEBIT,
                     quantity + fee,
                     principal + fee_cost,
-                    Valuation.CARRYING,
+                    Valuation.CARRYING,unvalued=abs(source_pending+fee_pending),
                 ),
                 JournalLine(
-                    destination.id, "THB", Side.CREDIT, quantity, target_cost, Valuation.CARRYING
+                    destination.id, "THB", Side.CREDIT, quantity, target_cost, Valuation.CARRYING,unvalued=abs(target_pending)
                 ),
             ]
             if fee_cost:
@@ -127,13 +126,14 @@ class WalletConversionService:
                     )
                 )
             if physical:
-                cost = state.position(source_instrument).withdrawal_cost(quantity)
+                moved_unknown=min(quantity,state.position(source_instrument).unvalued)
+                cost = state.position(source_instrument).withdrawal_cost(quantity,unvalued=moved_unknown)
                 lines += [
                     JournalLine(
-                        source["cash"], "THB", Side.CREDIT, quantity, cost, Valuation.CARRYING
+                        source["cash"], "THB", Side.CREDIT, quantity, cost, Valuation.CARRYING,unvalued=moved_unknown
                     ),
                     JournalLine(
-                        target["cash"], "THB", Side.DEBIT, quantity, cost, Valuation.CARRYING
+                        target["cash"], "THB", Side.DEBIT, quantity, cost, Valuation.CARRYING,unvalued=moved_unknown
                     ),
                 ]
             return balance_with_fx(
@@ -142,4 +142,4 @@ class WalletConversionService:
                 loss_account_id=source["fx_loss"],
             )
 
-        return await self._posting.post(command, build, prepare=prepare,valuation_quotes=(quote,replace(quote,instrument=target_instrument)))
+        return await self._posting.post(command, build, prepare=prepare,valuation_quotes=(quote,replace(quote,instrument=target_instrument)) if quote else ())

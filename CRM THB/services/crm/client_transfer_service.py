@@ -119,14 +119,10 @@ class ClientTransferService:
             if not confirmed:
                 return {'cancelled':True,'operation_id':None}
             instrument = request['instrument']
-            quote = next((q for q in await self._trading_queries.rates(at=effective_at)
-                          if q['instrument']==instrument),None)
-            if instrument!='USDT' and (quote is None or quote['quoted_rate'] is None):
-                raise InvalidPosting('Не задан курс себестоимости валюты относительно USDT: /курс')
             operation = await self._transfers.transfer(key=key+':post',actor_id=actor_id,
                 source_client_id=request['source_client'],target_client_id=recipient_id,
                 instrument=instrument,quantity=request['quantity'],business_date=business_date,
-                effective_at=effective_at,quoted_rate=quote['quoted_rate'] if quote else None,work=work)
+                effective_at=effective_at,work=work)
             return {'cancelled':False,'operation_id':operation.id}
         # One resolution key for ALL candidates: stale buttons cannot create another transfer.
         return await self._commands.execute(key=key+':resolve',actor_id=actor_id,

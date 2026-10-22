@@ -99,7 +99,7 @@ async def scenario(finance):
     )
     await record(finance)
     assert await totals(finance) == {("daniyar", "pe", "THB"): 200, ("skyex", "pe", "THB"): 400}
-    assert all(w["balance"] == 0 for w in await app.client_queries.wallets(dany))
+    assert all(w["balance"] == (35 if w["instrument_code"] == "USDT" else 0) for w in await app.client_queries.wallets(dany))
     await accrue(finance, agreement, approved=Decimal(10))
     report = await app.profit_queries.report(PERIOD)
     assert (

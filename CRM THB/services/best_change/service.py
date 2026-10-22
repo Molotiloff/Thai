@@ -355,7 +355,7 @@ class BestChangeLedgerService:
         ids = {
             trading["receive"][field],
             trading["pay"][field],
-            bindings["best_change_buffer"]["ledger_account_id"],
+            bindings["daniyar_balance"]["ledger_account_id"],
             accounts["trading_income"],
             accounts["trading_loss"],
             accounts["platform_commission_expense"],
@@ -373,8 +373,10 @@ class BestChangeLedgerService:
                 "client_rate": result.client_rate,
                 "thb_instrument": thb_instrument,
                 "mode": mode,
+                "daniyar_settlement": "immediate",
                 "reference": external_reference or f"thai:{key}",
                 "correction_of": correction_of,
+                "comment": "Прибыль с Бест",
             },
             profit_revision_id,
         )
@@ -456,7 +458,7 @@ class BestChangeLedgerService:
                         dany.copy_abs(),
                     ),
                     base_line(
-                        bindings["best_change_buffer"]["ledger_account_id"],
+                        bindings["daniyar_balance"]["ledger_account_id"],
                         Side.CREDIT if dany > 0 else Side.DEBIT,
                         dany.copy_abs(),
                     ),
@@ -471,6 +473,7 @@ class BestChangeLedgerService:
             attributes = {
                 "mode": mode,
                 "calculation": asdict(result),
+                "daniyar_settlement": "immediate",
                 "receive": {
                     "instrument": source,
                     "quantity": qty_in,

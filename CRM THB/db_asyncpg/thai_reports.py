@@ -1,6 +1,7 @@
 """Read models sharing one PostgreSQL snapshot, independent of runtime providers."""
 from decimal import Decimal, localcontext
 
+from db_asyncpg.internal_rates import InternalRates
 from db_asyncpg.thai_finance.queries import operation_dict
 from db_asyncpg.thai_profit.repository import ProfitRepository
 from domain.accounting_policy import summarize
@@ -54,7 +55,7 @@ class ReportQueries:
                 sources = await repo.sources(period)
                 term = await repo.term(period)
                 profit = summarize(sources)
-                return {**dict(stamp), 'period': period, 'cash': cash, 'wallets': wallets,
+                return {**dict(stamp), 'period': period, 'cash': cash, 'wallets': wallets, 'internal_rates': await InternalRates(db).rows(),
                     'capital': capital, 'capital_usdt': sum((r['principal_usdt'] for r in capital),Decimal(0)),
                     'interest_due_usdt': sum((r['interest_due_usdt'] for r in capital),Decimal(0)),
                     'expense_debts': debts, 'profit': {**profit,'term':term,'sources':sources}}

@@ -271,15 +271,12 @@ async def test_database_quote_snapshots_and_closed_client_history(finance):
     await finance["app"].clients.bind_chat(
         key="bind", actor_id=finance["actor"], client_id=cid, chat_id=-55
     )
-    await finance["app"].trading.set_rate(
-        **common(finance, "rate"), instrument="THB_CASH", quoted_rate="35"
-    )
     await fund(finance, instrument="USDT", quantity=Decimal(100))
     deal = await trade(finance, client_id=cid, rate=None)
     await finance["app"].trading.post(**common(finance, "post"), deal_id=deal)
     assert (await finance["app"].trading_queries.detail(deal))["attributes"]["receive"][
         "quoted_rate"
-    ] == "35"
+    ] == "36"
     await finance["app"].clients.close(
         key="close", actor_id=finance["actor"], client_id=cid, reason="Done"
     )

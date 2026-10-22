@@ -115,7 +115,7 @@ class ProfitRepository:
             result.daniyar_usdt,
             result.business_usdt,
             rate_id,
-            bindings["best_change_buffer"]["ledger_account_id"],
+            bindings["daniyar_balance"]["ledger_account_id"],
         )
         if command["correction_of"] is not None:
             await self._db.execute(
@@ -198,6 +198,8 @@ class ProfitRepository:
             for row in await self._db.fetch(
                 """
             SELECT c.*,d.operation_id FROM best_change_calculations c JOIN deals d ON d.id=c.deal_id
+                JOIN ledger_accounts recipient ON recipient.id=c.daniyar_wallet_account_id
+                    AND recipient.purpose='best_change_buffer'
                 JOIN active_financial_originals o ON o.id=d.operation_id
             WHERE o.business_date>=$1 AND o.business_date<($1::date+interval '1 month')
                 AND NOT EXISTS(SELECT 1 FROM best_change_transfer_allocations a JOIN best_change_period_transfers t ON t.id=a.transfer_id
@@ -314,7 +316,7 @@ class ProfitRepository:
     async def unpaid(self, recipient_id, platform, day):
         if platform:
             rows = await self._db.fetch(
-                "SELECT * FROM platform_commission_balances WHERE remaining_usdt>0 AND business_date<=$1 ORDER BY business_date,id",
+                "SELECT * FROM platform_commission_balances WHERE remaining_usdt>0 AND business_date<date_trunc('month',$1::date) ORDER BY business_date,id",
                 day,
             )
         else:

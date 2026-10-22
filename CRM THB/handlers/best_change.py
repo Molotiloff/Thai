@@ -322,7 +322,7 @@ class BestChangeHandler:
             day = message.date.astimezone(ZoneInfo('Asia/Bangkok')).date()
             report = await commands._app.profit_queries.best_change_report(day.replace(day=1))
             obligations = await commands._app.profit_queries.obligations()
-            await message.answer(format_best_change_balances({'buffer':report['buffer']['balance'],
+            await message.answer(format_best_change_balances({'buffer':report['buffer']['balance'],'daniyar':report['daniyar_balance']['balance'],
                 'platform':sum((row['remaining_usdt'] for row in obligations['platform']),Decimal(0))},only_nonzero=command=='/дай'))
             return True
         if command!='/бест':
@@ -497,6 +497,9 @@ def format_best_change_result(result: BestChangePostingResult | dict, *, include
             receive,pay = row['attributes']['receive'],row['attributes']['pay']
             return (f"{status} · #{result['root_id']}\nПолучаем: {receive['quantity']} {receive['instrument']}\n"
                 f"Отдаём: {pay['quantity']} {pay['instrument']}")
+        accrual_note = ('Доля Данияра зачислена сразу на «Баланс Данияр».'
+            if row['attributes'].get('daniyar_settlement') == 'immediate'
+            else 'Историческое начисление Данияра через буфер BestChange.')
         label = 'безнал' if row['attributes']['receive']['instrument']=='THB_BANK' or row['attributes']['pay']['instrument']=='THB_BANK' else 'наличные'
         return (f"{status} · #{result['root_id']}\n\n"
             f"{operation}, THB {label} · {c['quantity']} USDT\n"
@@ -504,7 +507,7 @@ def format_best_change_result(result: BestChangePostingResult | dict, *, include
             f"Валовый спред: {c['gross_thb']} THB\nФонд прибыли: {c['pool_usdt']} USDT\n"
             f"Доля Данияра: {c['daniyar_usdt']} USDT\nПрибыль обменника: {c['business_usdt']} USDT\n"
             f"Комиссия CoinDrop: {c['fee_usdt']} USDT\n\n"
-            'Доля Данияра учитывается в чате BestChange до закрытия периода.')
+            f'{accrual_note}\nКомиссия CoinDrop накапливается до конца месяца.')
     calculation = result.calculation
     heading = "♻️ Сделка уже была проведена" if result.repeated else "✅ Сделка проведена"
     warning = "\n⚠️ Сделка убыточная, комиссия CoinDrop не начислена." if calculation.is_loss else ""
@@ -547,7 +550,7 @@ def format_best_change_balances(
     only_nonzero: bool = False,
 ) -> str:
     if 'buffer' in balances:
-        rows = [("Доля Данияра в буфере",balances['buffer']),("Остаток CoinDrop",balances['platform'])]
+        rows = [("Баланс Данияра",balances.get('daniyar',Decimal(0))),("Исторический буфер Данияра",balances['buffer']),("Остаток CoinDrop",balances['platform'])]
         visible = [f'{label}: {value} USDT' for label,value in rows if not only_nonzero or value]
         return '📊 Счета BestChange\n\n'+'\n'.join(visible) if visible else 'Все счета BestChange нулевые. Посмотреть всё: /кошелек'
     account_rows = (
@@ -586,3 +589,11 @@ def _message_datetime(message: Message) -> datetime:
         return value.replace(tzinfo=_LOCAL_TIMEZONE)
     return value
 
+
+
+def format_best_change_profit(context: dict) -> str:
+    """Personal notification contains only Daniyar's accrual, never client pricing."""
+    row = context['active']
+    amount = row['attributes']['calculation']['daniyar_usdt']
+    status = 'Начислено' if row['active'] else 'Начисление отменено'
+    return f"Прибыль с Бест\nЗаявка #{context['root_id']}\n{status}: {amount} USDT"

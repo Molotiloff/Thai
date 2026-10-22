@@ -1,6 +1,5 @@
 """Familiar Russian bot interface over the isolated Thai accounting services."""
 
-import json
 import re
 from datetime import date
 from decimal import DecimalException
@@ -82,10 +81,6 @@ HELP = f"""📖 Команды тайской CRM
 Выберите получателя и подтвердите. Ответ на чек: /перевод новая_сумма или /отмена
 /USD 250 · /RUB -100 · /USDT (2+3*4) — ручное изменение кошелька, без кассы; комментарий можно дописать после суммы
 
-/курсы — курсы себестоимости
-/курс бат 35 — батов за 1 USDT
-/курс евро 1,1 — USDT за единицу
-Для валютных операций сначала задайте курс.
 
 /бест продажа 100 35 36 [бат|безнал]
 /бест покупка 100 35 34 [бат|безнал]
@@ -197,23 +192,6 @@ class RussianTelegramCommands:
             return "Клавиатура скрыта. Чтобы вернуть — /кнопки."
         return None
 
-    async def _quote(self, code, common):
-        # Re-delivery uses the original valuation even if the market rate changed.
-        previous = await self._app.pool.fetchval(
-            "SELECT command_details FROM financial_operations WHERE idempotency_key=$1 AND status='posted'",
-            common["key"],
-        )
-        if previous:
-            details = json.loads(previous)
-            if details.get("instrument") == code and details.get("quoted_rate") is not None:
-                return details["quoted_rate"]
-        if code == "USDT":
-            return "1"
-        for row in await self._app.trading_queries.rates(at=common["effective_at"]):
-            if row["instrument"] == code and row["quoted_rate"] is not None:
-                return str(row["quoted_rate"])
-        raise InvalidPosting(f"Не задан курс: {LABELS[code]}. Установите его командой /курс")
-
     async def execute(self, *, command, args, text, chat_id, common, chat_name=None, telegram_user_id=None, actor_name=None):
         response = await self._workflow(command, args, chat_id, common)
         if response is not None:
@@ -290,7 +268,7 @@ class RussianTelegramCommands:
         code = instrument(command[1:])
         result = await self._app.wallet_interactions.accounting_adjust(
             **common, client_id=client_id, instrument=code, quantity=amount(args[0], code, signed=True),
-            quoted_rate=await self._quote(code, common), comment=" ".join(args[1:]),
+             comment=" ".join(args[1:]),
         )
         row = next(row for row in await self._app.client_queries.wallets(client_id) if row['instrument_code']==code)
         return self._app.wallet_interactions.accounting_response(
@@ -309,15 +287,6 @@ class RussianTelegramCommands:
                 raise InvalidPosting('/привязать IDклиента')
             await self._app.clients.bind_chat(key=common['key'],actor_id=common['actor_id'],client_id=int(args[0]),chat_id=chat_id)
             return 'Чат привязан к клиенту'
-        if command == '/курсы':
-            return '\n'.join(
-                f"{LABELS[row['instrument']]}: {row['quoted_rate'] or 'не задан'} ({'бат за USDT' if row['currency_code']=='THB' else 'USDT за единицу'})"
-                for row in await self._app.trading_queries.rates())
-        if command == '/курс':
-            if len(args)!=2:
-                raise InvalidPosting('/курс валюта курс')
-            await self._app.trading.set_rate(**common,instrument=instrument(args[0]),quoted_rate=args[1].replace(',','.'))
-            return 'Курс сохранён в БД; исторические оценки сохранены'
         if command in ('/готово','/провести','/отмена'):
             if not args:
                 raise InvalidPosting(f'{command} IDзаявки' + (' причина' if command=='/отмена' else ''))
@@ -435,7 +404,7 @@ class RussianTelegramCommands:
                 raise InvalidPosting("/прибыль выплата скайекс|пе|площадка валюта сумма [курс]")
             code = instrument(args[2])
             result = await self._app.profit.pay(**common, recipient=recipients[args[1].lower()],
-                instrument=code, quantity=amount(args[3], code), quoted_rate=amount(args[4]) if len(args) == 5 else await self._quote(code, common))
+                instrument=code, quantity=amount(args[3], code), quoted_rate=amount(args[4]) if len(args) == 5 else None)
             return f"Выплата проведена: операция {result.id}"
         if len(args) > 1:
             raise InvalidPosting("/прибыль [ММ.ГГГГ]")

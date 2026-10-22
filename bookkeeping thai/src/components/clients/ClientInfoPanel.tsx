@@ -152,7 +152,7 @@ function ClientBalances({ client }: { client: Client }) {
             <dt className={styles.infoLabel}>{labels[balance.currency]??balance.currency}</dt>
             <dd className={styles.infoValue}>
               {formatCrypto(balance.amount, balance.currency)}
-              {!!balance.unvaluedAmount && <small> · без себестоимости: {formatCrypto(balance.unvaluedAmount, balance.currency)}</small>}
+              {!!balance.unvaluedAmount && <small> · без оценки: {formatCrypto(balance.unvaluedAmount, balance.currency)}</small>}
             </dd>
           </div>
         ))}

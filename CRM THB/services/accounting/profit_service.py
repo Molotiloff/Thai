@@ -456,7 +456,10 @@ class ProfitService:
         if quantity <= 0:
             raise InvalidPosting("Количество выплаты должно быть положительным")
         if instrument != "USDT" and quoted_rate is None:
-            raise InvalidPosting("Укажите курс выплаты относительно USDT")
+            internal = await self._queries.internal_quote(instrument,effective_at,key)
+            if internal is None:
+                raise InvalidPosting("Внутренний курс валюты ещё не сформирован обменами")
+            quoted_rate = internal.quoted_rate
         quote = FxQuote(
             instrument_row["currency_code"],
             decimal(quoted_rate if quoted_rate is not None else 1),

@@ -2,8 +2,8 @@
 
 from typing import cast
 
+from domain.deferred_valuation import cash_wallet_change
 from domain.finance.models import (
-    FxQuote,
     InvalidPosting,
     JournalLine,
     OperationCommand,
@@ -15,7 +15,6 @@ from domain.finance.models import (
     exact,
     revision_details,
 )
-from domain.wallet_valuation import liability_change
 from services.clients.ports import ClientUnitOfWork, WalletAuditReadPort
 from services.finance.ports import FinanceUowFactory
 from services.finance.posting import OperationPostingService
@@ -29,19 +28,17 @@ class WalletAdjustmentService:
         self._commands = MetadataCommandService(uow_factory) if uow_factory else None
 
     async def adjust(self, *, key, actor_id, client_id, instrument, quantity,
-                     quoted_rate, business_date, effective_at, comment="", profit_revision_id=None):
+                     business_date, effective_at, quoted_rate=None, comment="", profit_revision_id=None):
         accounts = await self._queries.adjustment_accounts(client_id, instrument)
         quantity = exact(decimal(quantity), accounts["precision"])
         if quantity == 0:
             raise InvalidPosting("Изменение кошелька должно быть ненулевым")
-        quote = FxQuote(accounts["currency"], decimal(quoted_rate),
-                        "units_per_usdt" if accounts["currency"] == "THB" else "usdt_per_unit",
-                        instrument)
+        quote = await self._queries.internal_quote(instrument,effective_at,key)
         command = OperationCommand(
             key, "manual_journal", actor_id, business_date, effective_at,
-            tuple(sorted((accounts["wallet"], accounts["retained_result"]))),
+            tuple(sorted((accounts["wallet"], accounts["adjustment_offset"]))),
             canonical_json(revision_details({"client": client_id, "instrument": instrument,
-                            "quantity": quantity, "quoted_rate": quote.quoted_rate,
+                            "quantity": quantity, "quoted_rate": quote.quoted_rate if quote else None,
                             "comment": comment, "purpose": "wallet_adjustment"},profit_revision_id)),
         )
 
@@ -50,15 +47,15 @@ class WalletAdjustmentService:
 
         def build(state):
             wallet = state.account(accounts["wallet"])
-            delta = liability_change(-wallet.native, -wallet.usdt, quantity, quote)
+            delta, pending = cash_wallet_change(wallet, quantity, quote)
             side = Side.CREDIT if quantity > 0 else Side.DEBIT
             value = delta.copy_abs()
             return PostingPlan((
-                JournalLine(wallet.id, wallet.currency, side, quantity.copy_abs(), value, Valuation.CARRYING),
-                JournalLine(accounts["retained_result"], "USDT", side.opposite, value, value, Valuation.BASE),
+                JournalLine(wallet.id, wallet.currency, side, quantity.copy_abs(), value, Valuation.CARRYING,unvalued=abs(pending)),
+                JournalLine(accounts["adjustment_offset"], wallet.currency, side.opposite, quantity.copy_abs(), value, Valuation.CARRYING,unvalued=abs(pending)),
             ))
 
-        return await self._posting.post(command, build, prepare=prepare,valuation_quotes=(quote,))
+        return await self._posting.post(command, build, prepare=prepare,valuation_quotes=(quote,) if quote else ())
 
 
     async def prepare_zero(self, *, key, actor_id, client_id):
@@ -81,8 +78,11 @@ class WalletAdjustmentService:
                 return {'cancelled':True,'operation_id':None,'client_id':request['client_id']}
             await work.journal.lock_posting_period(profit_revision_id=profit_revision_id)
             await work.clients.lock_client(request['client_id'])
-            retained = (await self._queries.adjustment_accounts(request['client_id'],'USDT'))['retained_result']
-            account_ids = tuple(sorted({retained,*(row['id'] for row in request['wallets'])}))
+            offsets={}
+            for row in request['wallets']:
+                accounts=await self._queries.adjustment_accounts(request['client_id'],row['instrument_code'])
+                offsets[row['id']]=accounts['adjustment_offset']
+            account_ids=tuple(sorted({*offsets.values(),*(row['id'] for row in request['wallets'])}))
             # Lock every wallet before checking the preview, including history versions (ABA protection).
             await work.accounts.lock_state(account_ids)
             preview = await work.clients.zero_preview(request['client_id'])
@@ -97,16 +97,13 @@ class WalletAdjustmentService:
                         'comment':'/обнулить: корректировка и закрытие клиента'},profit_revision_id)))
                 def build(state):
                     lines = []
-                    # Pair each wallet with retained_result; opposing costs may cancel but remain auditable.
+                    # Native corrections use the same contra accounts as ordinary wallet adjustments.
                     for row in nonzero:
                         wallet = state.account(row['id'])
-                        if wallet.unvalued:
-                            raise InvalidPosting('Сначала обменяйте или верните неоценённые баты клиента')
                         side = Side.CREDIT if wallet.native>0 else Side.DEBIT
                         value = wallet.usdt.copy_abs()
-                        lines.append(JournalLine(wallet.id,wallet.currency,side,wallet.native.copy_abs(),value,Valuation.CARRYING))
-                        if value:
-                            lines.append(JournalLine(retained,'USDT',side.opposite,value,value,Valuation.BASE))
+                        lines.append(JournalLine(wallet.id,wallet.currency,side,wallet.native.copy_abs(),value,Valuation.CARRYING,unvalued=abs(wallet.unvalued)))
+                        lines.append(JournalLine(offsets[wallet.id],wallet.currency,side.opposite,wallet.native.copy_abs(),value,Valuation.CARRYING,unvalued=abs(wallet.unvalued)))
                     return PostingPlan(tuple(lines))
                 operation = await self._posting.post(command,build,work=work)
             await work.clients.close_client(request['client_id'])

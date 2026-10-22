@@ -118,11 +118,17 @@ class ClientQueries:
             result[account['purpose']] = account['id']
         return result
 
+    async def internal_quote(self, instrument, at=None, key=None):
+        from db_asyncpg.internal_rates import InternalRates
+        return await InternalRates(self._pool).quote(instrument,at,key)
+
     async def adjustment_accounts(self, client_id, instrument):
         result = await self.wallet_accounts(client_id, instrument)
         result["retained_result"] = await self._pool.fetchval(
             "SELECT id FROM ledger_accounts WHERE purpose='retained_result'"
         )
+        result["adjustment_offset"] = await self._pool.fetchval(
+            "SELECT id FROM ledger_accounts WHERE purpose='wallet_adjustment_offset' AND instrument_code=$1",instrument)
         return result
 
     async def find_by_name(self, name):

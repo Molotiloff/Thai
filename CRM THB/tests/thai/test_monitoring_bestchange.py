@@ -139,9 +139,9 @@ async def test_otpr_insufficient_cash_retries_same_fact_and_reports_actual_misma
     assert 'требует проверки' in finance['app'].payment_watches.builder.build_accounting(current)
 
 
-async def test_best_change_correction_is_atomic_reuses_card_and_close_transfers_daniyar(finance,monkeypatch):
+async def test_best_change_correction_is_atomic_reuses_card_and_directly_credits_daniyar(finance,monkeypatch):
     from tests.thai.test_profit import close
-    await configure(finance)
+    _,dany=await configure(finance)
     await fund(finance,instrument='USDT',quantity=Decimal('1000'))
     commands=ThaiTelegramCommands(finance['app'],finance['config'])
     async def send(text,mid):
@@ -172,7 +172,8 @@ async def test_best_change_correction_is_atomic_reuses_card_and_close_transfers_
     amount=report['daniyar_usdt']
     await close(finance)
     report=await finance['app'].profit_queries.best_change_report(INSTANT.date().replace(day=1))
-    assert sum(row['amount_usdt'] for row in report['transfers'])==amount
+    assert report['transfers']==[]
+    assert next(w['balance'] for w in await finance['app'].client_queries.wallets(dany) if w['instrument_code']=='USDT')==amount
     assert report['buffer']['balance']==0
 
 
@@ -227,7 +228,7 @@ async def test_otpr_and_bestchange_router_restore_original_commands_and_callback
         for index,command in enumerate(('/кошелек','/кошелёк','/дай'),start=102):
             wallet=message.model_copy(update={'message_id':index,'chat':buffer_chat,'text':command,'reply_to_message':None}).as_(bot)
             await router.message.handlers[0].callback(wallet)
-            assert 'Доля Данияра в буфере: 1' in answer.call_args.args[0]
+            assert 'Баланс Данияра: 1' in answer.call_args.args[0]
             assert 'Остаток CoinDrop' in answer.call_args.args[0]
     finally:
         await bot.session.close()

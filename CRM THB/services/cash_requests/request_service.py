@@ -273,18 +273,9 @@ class CashRequestService:
                 return await uow.journal.get(deal['operation_id'])
         if deal['effective_status']!='ready':
             raise InvalidPosting('Сначала отметьте заявку готовой к расчёту')
-        new_debt=False
-        if deal['kind']=='withdrawal' and instrument in ('THB_CASH','THB_BANK') and quoted_rate is None:
-            current=next(row for row in await self._wallet_queries.wallets(deal['client_id']) if row['instrument_code']==instrument)
-            new_debt=abs(signed)>max(current['balance'],0)
-        if quoted_rate is None and (instrument not in ('USDT','THB_CASH','THB_BANK') or new_debt):
-            quoted_rate = next((row['quoted_rate'] for row in await self._queries.rates(at=common['effective_at'])
-                if row['instrument']==instrument and row['quoted_rate'] is not None), None)
-        if deal['kind']=='deposit' and quoted_rate is None and instrument not in ('USDT','THB_CASH','THB_BANK'):
-            raise InvalidPosting(f'Не задан курс: {instrument}. Установите /курс или укажите курс в CRM')
         method = self._wallets.deposit if deal['kind']=='deposit' else self._wallets.withdraw
         return await method(**common, client_id=deal['client_id'], instrument=instrument,
-            quantity=abs(signed), quoted_rate=quoted_rate, comment=attrs.get('comment',''), request_id=deal_id)
+            quantity=abs(signed), comment=attrs.get('comment',''), request_id=deal_id)
 
     def card_plan(self, deal, keyboards):
         from domain import CashRequestKind, Money

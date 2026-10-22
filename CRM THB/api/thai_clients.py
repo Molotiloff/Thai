@@ -98,7 +98,7 @@ def register_client_routes(app, container, actor):
     @app.post('/api/v1/clients/{client_id}/wallets/{instrument}/adjustments')
     async def wallet_adjust(client_id: int,instrument: str,payload: WalletAdjustmentRequest,user: int = Depends(actor)):
         return operation_response(await container.wallet_interactions.accounting_adjust(key=payload.idempotency_key,
-            actor_id=user,client_id=client_id,instrument=instrument,quantity=payload.quantity,quoted_rate=payload.quoted_rate,
+            actor_id=user,client_id=client_id,instrument=instrument,quantity=payload.quantity,
             effective_at=payload.effective_at,business_date=business_day(payload.effective_at,payload.business_date),
             comment=payload.comment,profit_revision_id=payload.profit_revision_id))
 
@@ -178,7 +178,7 @@ def register_client_routes(app, container, actor):
 
     async def cash_change(client_id, instrument, payload, user, method):
         return operation_response(await method(key=payload.idempotency_key, actor_id=user,
-            client_id=client_id, instrument=instrument, quantity=payload.quantity, quoted_rate=payload.quoted_rate,
+            client_id=client_id, instrument=instrument, quantity=payload.quantity,
             business_date=business_day(payload.effective_at, payload.business_date), effective_at=payload.effective_at,
             comment=payload.comment))
 

@@ -82,9 +82,7 @@ async def test_clients_workspace_uses_live_wallets_groups_and_historical_turnove
 
     await send('/start')
     client_id = await finance['app'].trading_queries.client_by_chat(-123)
-    await send('/курс бат 35')
     await send('/пбат 3500 от 100')
-    await send('/курс бат 40')  # Directory keeps original posted valuation.
     await finance['app'].clients.assign_group(key='partner', actor_id=finance['actor'], client_id=client_id,
                                                group_code='partner', reason='Партнер')
     row = (await finance['app'].client_queries.workspace())['clients'][0]
