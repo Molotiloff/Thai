@@ -47,7 +47,7 @@ async function forward(pathname,options){
 }
 for(const pathname of ['/deals','/deals/1/ready','/deals/1/post','/cash-requests',
   '/cash-requests/1/settle','/capital/agreements','/capital/agreements/1/contributions',
-  '/capital/agreements/1/withdrawals','/expenses','/profit/payments']){
+  '/capital/agreements/1/withdrawals','/expenses','/expenses/participants/skyex/binding','/profit/payments']){
   assert.equal((await forward(pathname)).status,200,pathname);
   assert.equal(calls.at(-1).url,'http://backend/api/v1'+pathname);
   assert.equal(calls.at(-1).init.headers.Authorization,'Bearer mock-auth');
@@ -82,3 +82,16 @@ assert.equal(calculate({'receive.quantity':'1','exchange.rate':'0.005'})['pay.qu
 assert.equal(calculate({'receive.quantity':'100','exchange.rate':'0'})['pay.quantity'],'');
 assert.equal(calculate({'receive.quantity':'100','pay.quantity':'96','exchange.rate':'0.96'},'pay.instrument')['pay.quantity'],'');
 console.log('PASS: direct/inverse pair rates, either amount as input, THB/USDT/fiat precision, comma, cross exchange, HALF_UP, large exact amounts, invalid rates and currency changes.');
+
+const {expensePreview}=load(path.join(root,'src/thai/expense-preview.ts'));
+const expense={amount:'33000',instrument:'THB_CASH',quoted_rate:'33',payer:'skyex',equal_split:'on'};
+assert.match(expensePreview(expense),/Всего: 1000\.000000 USDT/);
+assert.match(expensePreview(expense),/Расход бизнеса: 666\.666667 USDT/);
+assert.match(expensePreview(expense),/SkyEX: \+1000\.000000 USDT/);
+assert.match(expensePreview({...expense,payer:'business'}),/Из кассы: −33000 THB_CASH/);
+assert.match(expensePreview({...expense,payer:'daniyar'}),/Итого Данияру: \+666\.666667 USDT/);
+assert.match(expensePreview({...expense,instrument:'USDT',amount:'1000',quoted_rate:''}),/Всего: 1000\.000000 USDT/);
+assert.match(expensePreview({...expense,equal_split:'','shares.daniyar':'20','shares.common':'80'}),/Расход бизнеса: 800\.000000 USDT/);
+assert.match(expensePreview({...expense,quoted_rate:'0'}),/положительными/);
+assert.match(expensePreview({...expense,equal_split:'','shares.common':'99'}),/100%/);
+console.log('PASS: expense USDT valuation, exact thirds, cash/personal payers, Daniyar net balance, percentages and invalid rates.');
