@@ -4,6 +4,7 @@ from fastapi import Depends, Query
 from pydantic import Field, StrictStr
 
 from api.thai_capital import CommandRequest
+from api.thai_clients import DirectoryRequest
 from api.thai_common import business_day, operation_response, response
 from services.expenses.service import month
 
@@ -13,13 +14,18 @@ class ExpenseRequest(CommandRequest):
     category_id: int = Field(gt=0)
     instrument: str
     amount: StrictStr
-    quoted_rate: StrictStr
+    quoted_rate: StrictStr | None = None
+    equal_split: bool = False
     payer: str
     shares: dict[str, StrictStr]
     comment: str = ""
     revision_id: int | None = Field(None, gt=0)
     deposit: bool = False
     correction_of: int | None = Field(None, gt=0)
+
+
+class ParticipantBindingRequest(DirectoryRequest):
+    client_id: int = Field(gt=0)
 
 
 class SettlementRequest(CommandRequest):
@@ -70,6 +76,11 @@ def register_expense_routes(app, container, actor):
     @app.get("/api/v1/expense-participants")
     async def participants(user: int = Depends(actor)):
         return response(await container.expense_queries.participants())
+
+    @app.post("/api/v1/expenses/participants/{code}/binding")
+    async def bind_participant(code: str, payload: ParticipantBindingRequest, user: int = Depends(actor)):
+        return response(await container.expenses.bind_participant(
+            key=payload.idempotency_key, actor_id=user, code=code, client_id=payload.client_id))
 
     @app.get("/api/v1/expenses")
     async def expenses(

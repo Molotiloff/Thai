@@ -15,6 +15,7 @@ class ProfitRepository:
             SELECT b.purpose,b.client_id,w.ledger_account_id FROM business_client_bindings b
                 JOIN client_wallet_accounts w ON w.client_id=b.client_id AND w.instrument_code='USDT'
                     AND w.kind=CASE b.purpose WHEN 'best_change_buffer' THEN 'profit_buffer' ELSE 'client' END
+            WHERE b.purpose IN ('best_change_buffer','daniyar_balance')
         """)
         result = {row["purpose"]: dict(row) for row in rows}
         if len(result) != 2:
@@ -60,7 +61,7 @@ class ProfitRepository:
         )
 
     async def binding_clients(self):
-        return {row['purpose']:row['client_id'] for row in await self._db.fetch('SELECT * FROM business_client_bindings')}
+        return {row['purpose']:row['client_id'] for row in await self._db.fetch("SELECT * FROM business_client_bindings WHERE purpose IN ('best_change_buffer','daniyar_balance')")}
 
     async def rate(self, quote, actor_id, effective_at):
         return await self._db.fetchval(

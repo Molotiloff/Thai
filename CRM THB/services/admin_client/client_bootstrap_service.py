@@ -24,11 +24,13 @@ class ClientBootstrapService:
     def __init__(
         self, repo: ClientWalletRepositoryPort | None = None, *,
         uow_factory: FinanceUowFactory | None = None,
+        reserved_chat_ids=(),
     ) -> None:
         if (repo is None) == (uow_factory is None):
             raise ValueError("Configure exactly one wallet repository or accounting unit of work")
         self.repo = repo
         self._factory = uow_factory
+        self._reserved_chat_ids=frozenset(reserved_chat_ids)
 
     async def ensure_client_wallet(self, *, chat_id: int, chat_name: str) -> int:
         if self.repo is None:
@@ -44,6 +46,8 @@ class ClientBootstrapService:
         return client_id
 
     async def ensure_telegram_client_wallet(self, *, key, telegram_user_id, chat_id, chat_name):
+        if chat_id in self._reserved_chat_ids:
+            raise InvalidPosting('Чат общей кассы нельзя зарегистрировать как клиента')
         if self._factory is None:
             raise RuntimeError("Transactional registration requires an accounting unit of work")
         name = chat_name.strip()

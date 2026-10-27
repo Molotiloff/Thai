@@ -44,7 +44,7 @@ class ProfitQueries:
             return await ProfitRepository(connection).bindings()
 
     async def optional_bindings(self):
-        if not await self._pool.fetchval("SELECT EXISTS(SELECT 1 FROM business_client_bindings)"):
+        if not await self._pool.fetchval("SELECT EXISTS(SELECT 1 FROM business_client_bindings WHERE purpose='best_change_buffer')"):
             return None
         return await self.bindings()
 

@@ -15,7 +15,7 @@ class ExpenseShare:
     usdt: Decimal
 
 
-def allocate_shares(amount, amount_usdt, precision, inputs, participants):
+def allocate_shares(amount, amount_usdt, precision, inputs, participants, *, usdt_precision=8, equal_split=False):
     if set(inputs) - {"daniyar", "pe", "skyex", "common"}:
         raise InvalidPosting("Неизвестная доля расхода")
     values = {
@@ -24,14 +24,17 @@ def allocate_shares(amount, amount_usdt, precision, inputs, participants):
     }
     if any(value < 0 or value > 100 for value in values.values()) or sum(values.values()) != 100:
         raise InvalidPosting("Доли расхода должны составлять ровно 100%")
+    if equal_split:
+        inputs_equal = dict(allocate_weights(Decimal(100), tuple((participants[c], Decimal(1)) for c in ("daniyar", "pe", "skyex")), 6))
+        values = {c: inputs_equal[participants[c]] for c in ("daniyar", "pe", "skyex")} | {"common": Decimal(0)}
     expanded = {
         code: values[code] + (values["common"] / 2 if code in ("pe", "skyex") else 0)
         for code in ("daniyar", "pe", "skyex")
     }
     # Splitting an odd millionth of a percent needs one extra decimal place.
-    weights = {participants[code]: percent for code, percent in expanded.items()}
+    weights = {participants[code]: (Decimal(1) if equal_split else percent) for code, percent in expanded.items()}
     native = dict(allocate_weights(amount, tuple(weights.items()), precision))
-    costs = dict(allocate_weights(amount_usdt, tuple(native.items()), 8))
+    costs = dict(allocate_weights(amount_usdt, tuple(weights.items()) if equal_split else tuple(native.items()), usdt_precision))
     return tuple(
         ExpenseShare(
             code, participants[code], percent, native[participants[code]], costs[participants[code]]

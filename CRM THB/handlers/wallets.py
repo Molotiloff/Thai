@@ -37,6 +37,7 @@ from services.receipts.image import format_receipt_datetime
 from services.wallets import WalletInteractionService
 from services.wallets.command_parser import WalletCommandParser
 from services.wallets.models import CurrencyChangeCommand
+from services.wallets.text_builder import WalletTextBuilder
 from telegram_adapters import ChatLockRegistry, CityCashMediaStore
 from telegram_adapters.auth import (
     manager_or_admin_callback_required,
@@ -1031,6 +1032,39 @@ class WalletsHandler:
 
 
     @staticmethod
+    async def accounting_cash_chat_command(commands,message,command):
+        if not commands.is_cash_chat(message.chat.id):
+            return False
+        words=(message.text or '').split()
+        currency_change=command[1:] in commands.transfer_aliases and len(words)>1
+        if currency_change and len(words)==3 and _RE_CASH_REQUEST_ID.fullmatch(words[-1]):
+            return False
+        from app.thai_russian_commands import CASH, FX_CASH, RECEIVE
+        if not currency_change and command not in {*CASH,*FX_CASH,*RECEIVE,
+                '/start','/дай','/кошелек','/кошелёк','/выписка','/обнулить','/регистрация','/привязать','/закрыть','/перевод'}:
+            return False
+        if (getattr(message,'forward_origin',None) or getattr(message,'forward_from',None)) and currency_change:
+            return True
+        from telegram_adapters.statements import statements_kb
+        await commands.authorize(message.from_user.id)
+        if command=='/выписка':
+            if len(words)>2:
+                from domain.finance.models import InvalidPosting
+                raise InvalidPosting('/выписка [валюта]')
+            code=commands.resolve_instrument(words[1]) if len(words)==2 else 'THB_CASH'
+            await WalletsHandler._accounting_statement_page(commands,message,None,code,cash=True)
+            return True
+        text=await commands.execute(telegram_user_id=message.from_user.id,chat_id=message.chat.id,
+            message_id=message.message_id,text=message.text,effective_at=message.date,
+            chat_name=get_chat_name(message),actor_name=message.from_user.full_name)
+        if currency_change:
+            operation=await commands._app.pool.fetchval('SELECT id FROM financial_operations WHERE idempotency_key=$1',f'tg:{message.chat.id}:{message.message_id}')
+            await commands.deliver_wallet_adjustment(message.bot,operation)
+        else:
+            await message.answer(text,parse_mode='HTML' if text.startswith('<code>') else None,reply_markup=statements_kb())
+        return True
+
+    @staticmethod
     def register_accounting_wallets(router,commands):
         from domain.finance.models import FinanceError, InvalidPosting
         from services.finance.outbox import DeliveryError
@@ -1040,17 +1074,20 @@ class WalletsHandler:
                 await cq.answer('Сообщение недоступно',show_alert=True)
                 return
             try:
-                client = await commands._app.trading_queries.client_by_chat(cq.message.chat.id)
-                if client is None:
+                cash=commands.is_cash_chat(cq.message.chat.id)
+                if cash:
+                    await commands.authorize(cq.from_user.id)
+                client = None if cash else await commands._app.trading_queries.client_by_chat(cq.message.chat.id)
+                if client is None and not cash:
                     raise InvalidPosting('Сначала /start в этом клиентском чате')
                 if cq.data in ('stmt:month','stmt:all'):
                     await handle_stmt_callback(cq,accounting_service=commands._app.wallet_interactions,
-                        client_id=client,timezone='Asia/Bangkok')
+                        client_id=client,timezone='Asia/Bangkok',cash_queries=commands._app.queries if cash else None)
                 else:
                     _,_,code,before = (cq.data or '').split(':')
                     if code not in set(commands.transfer_aliases.values()):
                         raise InvalidPosting('Неизвестный счёт')
-                    await WalletsHandler._accounting_statement_page(commands,cq.message,client,code,int(before) or None)
+                    await WalletsHandler._accounting_statement_page(commands,cq.message,client,code,int(before) or None,cash=cash)
                     await cq.answer()
             except (FinanceError,ValueError) as error:
                 await cq.answer(str(error)[:190],show_alert=True)
@@ -1064,7 +1101,8 @@ class WalletsHandler:
                 from zoneinfo import ZoneInfo
                 actor = await commands.authorize(cq.from_user.id)
                 now = datetime.now(UTC)
-                result = await commands._app.wallet_interactions.accounting_undo(chat_id=cq.message.chat.id,
+                undo_service=commands._app.manual_cash.undo_by_message if commands.is_cash_chat(cq.message.chat.id) else commands._app.wallet_interactions.accounting_undo
+                result = await undo_service(chat_id=cq.message.chat.id,
                     message_id=cq.message.message_id,actor_id=actor,effective_at=now,
                     business_date=now.astimezone(ZoneInfo('Asia/Bangkok')).date())
                 await commands.deliver_wallet_adjustment(cq.bot,result['original_id'])
@@ -1081,6 +1119,8 @@ class WalletsHandler:
             try:
                 from datetime import UTC, datetime
                 from zoneinfo import ZoneInfo
+                if commands.is_cash_chat(cq.message.chat.id):
+                    raise InvalidPosting('Общую кассу нельзя обнулить как клиента')
                 phase,mid = (cq.data or '')[5:].split(':')
                 if phase not in ('yes','no'):
                     raise InvalidPosting('Некорректное подтверждение')
@@ -1099,9 +1139,13 @@ class WalletsHandler:
         router.callback_query.register(zero,F.data.startswith('zero:'))
 
     @staticmethod
-    async def _accounting_statement_page(commands,message,client,code,before=None):
+    async def _accounting_statement_page(commands,message,client,code,before=None,*,cash=False):
         from telegram_adapters.statements import statements_kb
-        page = await commands._app.wallet_interactions.statement_page(client_id=client,instrument=code,before_id=before)
+        if cash:
+            found=await commands._app.queries.cash_history(code,before_id=before,limit=16)
+            page={'text':WalletTextBuilder.statement_text(code,found[:15]),'next_before_id':found[14]['id'] if len(found)>15 else None}
+        else:
+            page = await commands._app.wallet_interactions.statement_page(client_id=client,instrument=code,before_id=before)
         buttons = []
         if page['next_before_id']:
             buttons.append([InlineKeyboardButton(text='Далее →',callback_data=f"stmt:page:{code}:{page['next_before_id']}")])

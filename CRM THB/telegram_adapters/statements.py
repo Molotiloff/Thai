@@ -122,7 +122,7 @@ def _build_statement_xlsx(rows: list[dict], chat_name: str, period_label: str, *
 
 
 async def handle_stmt_callback(cq: CallbackQuery, repo: ClientTransactionRepositoryPort | None = None, *,
-                               accounting_service=None,client_id: int | None = None,timezone: str = "UTC") -> None:
+                               accounting_service=None,client_id: int | None = None,timezone: str = "UTC",cash_queries=None) -> None:
     """
     Универсальный обработчик callback'ов выписок:
       - data = "stmt:month" → текущий месяц
@@ -158,7 +158,10 @@ async def handle_stmt_callback(cq: CallbackQuery, repo: ClientTransactionReposit
 
         chat_id = msg.chat.id
         chat_name = get_chat_name(msg)
-        if accounting_service is not None:
+        if cash_queries is not None:
+            tx_rows = await cash_queries.export_cash_transactions(since=since_arg,until=until_arg)
+            chat_name='Общая касса Таиланда'
+        elif accounting_service is not None:
             tx_rows = await accounting_service.export_transactions(client_id=client_id,since=since_arg,until=until_arg)
         else:
             client_id = await repo.ensure_client(chat_id=chat_id,name=chat_name)

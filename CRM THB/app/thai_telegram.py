@@ -19,12 +19,18 @@ class ThaiTelegramCommands:
         self._app, self._config = container, config
         self._russian = RussianTelegramCommands(container, config)
 
+    def is_cash_chat(self,chat_id):
+        return self._config.is_cash_chat(chat_id)
+
+    def _delivery(self,bot):
+        return ThaiTelegramDelivery(self._app,bot,self.operations_chat_id,cash_chat_ids=self._config.cash_chat_ids)
+
     @property
     def operations_chat_id(self):
         return self._config.operations_chat_id
 
     async def deliver_cash_request(self, bot, deal_id):
-        await ThaiTelegramDelivery(self._app, bot, self.operations_chat_id).deliver_cash_request(deal_id)
+        await self._delivery(bot).deliver_cash_request(deal_id)
 
     @property
     def transfer_aliases(self):
@@ -34,19 +40,19 @@ class ThaiTelegramCommands:
         return instrument(value)
 
     async def deliver_payment_watch(self,bot,watch_id):
-        await ThaiTelegramDelivery(self._app,bot,self.operations_chat_id).deliver_payment_watch(watch_id)
+        await self._delivery(bot).deliver_payment_watch(watch_id)
 
     async def deliver_best_change(self,bot,deal_id):
-        await ThaiTelegramDelivery(self._app,bot,self.operations_chat_id).deliver_best_change(deal_id)
+        await self._delivery(bot).deliver_best_change(deal_id)
 
     async def deliver_wallet_adjustment(self, bot, operation_id):
-        await ThaiTelegramDelivery(self._app,bot,self.operations_chat_id).deliver_wallet_adjustment(operation_id)
+        await self._delivery(bot).deliver_wallet_adjustment(operation_id)
 
     async def deliver_client_transfer(self, bot, operation_id):
-        await ThaiTelegramDelivery(self._app,bot,self.operations_chat_id).deliver_client_transfer(operation_id)
+        await self._delivery(bot).deliver_client_transfer(operation_id)
 
     async def deliver_exchange_request(self, bot, deal_id):
-        await ThaiTelegramDelivery(self._app,bot,self.operations_chat_id).deliver_exchange_request(deal_id)
+        await self._delivery(bot).deliver_exchange_request(deal_id)
 
     async def exchange_by_command(self, chat_id, message_id):
         deal = await self._app.trading_queries.exchange_by_reference(f'tg:{chat_id}:{message_id}')
@@ -116,8 +122,7 @@ class ThaiTelegramCommands:
         request_id, revision = data[len(prefix):].rsplit(':',1)
         deal_id = self._app.cash_requests.deal_id(request_id)
         deal = await self._app.trading_queries.detail(deal_id)
-        allowed_chat = self.operations_chat_id or deal['attributes'].get('source_chat_id')
-        if chat_id != allowed_chat or await self.cash_request_by_message(chat_id,message_id)!=deal_id:
+        if not self._config.can_settle_cash(chat_id,deal['attributes'].get('source_chat_id')) or await self.cash_request_by_message(chat_id,message_id)!=deal_id:
             raise InvalidPosting('Кнопка доступна только в рабочей карточке заявки')
         return await self._app.cash_requests.change_request_status(
             key=f'cash:{deal_id}:{revision}:{action}', actor_id=actor, request_id=request_id,
@@ -159,8 +164,10 @@ class ThaiTelegramCommands:
 
 
 class ThaiTelegramDelivery:
-    def __init__(self, container, bot, operations_chat_id=None):
+    def __init__(self, container, bot, operations_chat_id=None, *, cash_chat_ids=None):
         self._app, self._bot, self._operations_chat_id = container, bot, operations_chat_id
+        self._cash_chat_ids=frozenset(cash_chat_ids if cash_chat_ids is not None else
+            (container.config.cash_chat_ids if container.config is not None else ()))
 
     async def deliver_exchange_request(self, deal_id, *, event=None):
 
@@ -244,6 +251,9 @@ class ThaiTelegramDelivery:
             operation_id,
         )
         details = json.loads(row["command_details"])
+        if row['kind']=='expense' and details.get('settlement_version')==2:
+            await self.deliver_expense(operation_id)
+            return
         if row['kind']=='profit_configure':
             return
         if details.get('payment_watch_id'):
@@ -253,7 +263,7 @@ class ThaiTelegramDelivery:
             deal_id = await self._app.pool.fetchval('SELECT id FROM deals WHERE operation_id=$1',operation_id)
             await self.deliver_best_change(deal_id)
             return
-        if row['kind']=='manual_journal' and details.get('purpose')=='wallet_adjustment':
+        if row['kind']=='manual_journal' and details.get('purpose') in ('wallet_adjustment','cash_adjustment'):
             await self.deliver_wallet_adjustment(operation_id)
             return
         if row["kind"]=="wallet_transfer":
@@ -262,11 +272,14 @@ class ThaiTelegramDelivery:
         if row['kind']=='reversal' and details.get('original'):
             original = await self._app.pool.fetchval('SELECT command_details FROM financial_operations WHERE id=$1',details['original'])
             original = json.loads(original)
+            if original.get('settlement_version')==2:
+                await self.deliver_expense(details['original'])
+                return
             if await self._app.pool.fetchval('SELECT kind FROM financial_operations WHERE id=$1',details['original'])=='best_change':
                 deal_id = await self._app.pool.fetchval('SELECT id FROM deals WHERE operation_id=$1',details['original'])
                 await self.deliver_best_change(deal_id)
                 return
-            if original.get('purpose')=='wallet_adjustment':
+            if original.get('purpose') in ('wallet_adjustment','cash_adjustment'):
                 await self.deliver_wallet_adjustment(details['original'])
                 return
             if await self._app.pool.fetchval('SELECT kind FROM financial_operations WHERE id=$1',details['original'])=='wallet_transfer':
@@ -340,6 +353,58 @@ class ThaiTelegramDelivery:
             raise DeliveryError("telegram_delivery_failed") from None
 
 
+    async def deliver_expense(self, operation_id):
+        try:
+            await self._deliver_expense(operation_id)
+        except TelegramAPIError:
+            raise DeliveryError("expense_delivery_failed") from None
+
+    async def _deliver_expense(self, operation_id):
+        """Update each affected customer's own expense card; retries reuse its message link."""
+        detail = await self._app.pool.fetchrow("""
+            SELECT e.*,o.business_date,NOT EXISTS(SELECT 1 FROM active_financial_originals a WHERE a.id=o.id) AS cancelled
+            FROM expenses e JOIN financial_operations o ON o.id=e.operation_id WHERE e.operation_id=$1
+        """, operation_id)
+        rows = await self._app.pool.fetch("""
+            SELECT x.*,c.telegram_chat_id FROM expense_wallet_entries x
+                JOIN client_chat_links c ON c.client_id=x.client_id AND c.is_active WHERE x.operation_id=$1
+        """, operation_id)
+        for entry in rows:
+            async with self._app.pool.acquire() as db, db.transaction():
+                await db.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", f"expense:{operation_id}:{entry['telegram_chat_id']}")
+                text = f"{'Отменён расход' if detail['cancelled'] else 'Расход'} #{detail['id']} · {detail['business_date']}\n"
+                if detail['comment']:
+                    text += detail['comment'] + "\n"
+                if entry['credit_usdt']:
+                    text += f"Компенсация оплаты: +{entry['credit_usdt']:f} USDT\n"
+                if entry['debit_usdt']:
+                    text += f"Ваша доля расхода: −{entry['debit_usdt']:f} USDT\n"
+                if detail['cancelled']:
+                    text += "Начисление и удержание отменены.\n"
+                balance = await db.fetchval("SELECT balance FROM posted_account_balances WHERE account_id=$1", entry['wallet_account_id'])
+                text += f"Баланс: {balance:f} USDT"
+                link = await db.fetchrow("SELECT * FROM telegram_message_links WHERE operation_id=$1 AND chat_id=$2 AND purpose='expense'", operation_id, entry['telegram_chat_id'])
+                await self._update_card(db, operation_id=operation_id, chat_id=entry['telegram_chat_id'],
+                    text=text, markup=None, purpose='expense', link=link, parse_mode=None)
+
+        operations_chat = self._operations_chat_id
+        if operations_chat and operations_chat not in {entry['telegram_chat_id'] for entry in rows}:
+            async with self._app.pool.acquire() as db, db.transaction():
+                await db.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", f"expense:{operation_id}:{operations_chat}")
+                business = await db.fetchval("""
+                    SELECT coalesce(sum(a.amount_usdt),0) FROM expense_allocations a
+                    JOIN business_participants p ON p.party_id=a.party_id AND p.code IN ('skyex','pe') WHERE a.expense_id=$1
+                """, detail['id'])
+                payer = await db.fetchval("SELECT name FROM parties WHERE id=$1", detail['payer_party_id']) if detail['payer_party_id'] else 'Общая касса'
+                text = (f"{'Отменён расход' if detail['cancelled'] else 'Расход'} #{detail['id']} · {detail['business_date']}\n"
+                    f"Сумма: {detail['amount']:f} {detail['currency_code']} = {detail['amount_usdt']:f} USDT\n"
+                    f"Оплатил: {payer}\nРасход бизнеса: {business:f} USDT")
+                if detail['comment']:
+                    text += "\n" + detail['comment']
+                link = await db.fetchrow("SELECT * FROM telegram_message_links WHERE operation_id=$1 AND chat_id=$2 AND purpose='expense'",operation_id,operations_chat)
+                await self._update_card(db,operation_id=operation_id,chat_id=operations_chat,text=text,
+                    markup=None,purpose='expense',link=link,parse_mode=None)
+
     async def deliver_cash_request(self, deal_id):
 
         from telegram_adapters.cash_keyboards import AiogramCashKeyboardPresenter
@@ -350,6 +415,7 @@ class ThaiTelegramDelivery:
             deal['client_id']))
         if attrs.get('source_chat_id'):
             chats.add(attrs['source_chat_id'])
+        chats.update(self._cash_chat_ids)
         operations_chat = self._operations_chat_id or attrs.get('source_chat_id')
         if operations_chat:
             chats.add(operations_chat)
@@ -360,7 +426,7 @@ class ThaiTelegramDelivery:
                     # Re-read under the delivery lock: old events cannot revert a newer card.
                     current = await self._app.trading_queries.detail(deal_id, connection=connection)
                     plan = self._app.cash_requests.card_plan(current, AiogramCashKeyboardPresenter())
-                    request_card = chat_id==operations_chat
+                    request_card = chat_id==operations_chat or chat_id in self._cash_chat_ids
                     text = plan.request_text if request_card else plan.client_text
                     markup = plan.request_markup if request_card else None
                     link = await connection.fetchrow(
@@ -411,24 +477,31 @@ class ThaiTelegramDelivery:
         from telegram_adapters.wallet_keyboards import AiogramWalletKeyboardPresenter
         original = await self._app.queries.detail(operation_id)
         details = original['command_details']
-        if original['kind']!='manual_journal' or details.get('purpose')!='wallet_adjustment':
+        cash=details.get('purpose')=='cash_adjustment'
+        if original['kind']!='manual_journal' or details.get('purpose') not in ('wallet_adjustment','cash_adjustment'):
             raise InvalidPosting('Это не корректировка кошелька')
-        chats = await self._app.pool.fetch('SELECT telegram_chat_id FROM client_chat_links WHERE client_id=$1 AND is_active',details['client'])
+        chats = [{'telegram_chat_id':details['chat_id']}] if cash else await self._app.pool.fetch('SELECT telegram_chat_id FROM client_chat_links WHERE client_id=$1 AND is_active',details['client'])
+        purpose='cash_adjustment' if cash else 'wallet_adjustment'
         try:
             for chat in chats:
                 chat_id = chat['telegram_chat_id']
                 async with self._app.pool.acquire() as db, db.transaction():
                     await db.execute('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',f'wallet-card:{operation_id}:{chat_id}')
                     cancelled = await db.fetchval("SELECT EXISTS(SELECT 1 FROM financial_operations WHERE reversal_of_id=$1 AND status='posted')",operation_id)
-                    wallets = await self._app.client_queries.wallets(details['client'],connection=db)
-                    balance = next(row['balance'] for row in wallets if row['instrument_code']==details['instrument'])
+                    if cash:
+                        balance=await db.fetchval('SELECT b.balance FROM cash_accounts c JOIN posted_account_balances b ON b.account_id=c.ledger_account_id WHERE c.instrument_code=$1',details['instrument'])
+                    else:
+                        wallets = await self._app.client_queries.wallets(details['client'],connection=db)
+                        balance = next(row['balance'] for row in wallets if row['instrument_code']==details['instrument'])
                     text = self._app.wallet_interactions.accounting_response(details,balance)
+                    if cash:
+                        text+=f'\nОбщая касса · операция #{operation_id}'
                     if cancelled:
                         text+='\n↩️ Отменено.'
                     markup = None if cancelled else AiogramWalletKeyboardPresenter().undo_operation(operation_id)
-                    link = await db.fetchrow("SELECT * FROM telegram_message_links WHERE operation_id=$1 AND chat_id=$2 AND purpose='wallet_adjustment'",operation_id,chat_id)
+                    link = await db.fetchrow("SELECT * FROM telegram_message_links WHERE operation_id=$1 AND chat_id=$2 AND purpose=$3",operation_id,chat_id,purpose)
                     await self._update_card(db,operation_id=operation_id,chat_id=chat_id,text=text,markup=markup,
-                        purpose='wallet_adjustment',link=link,parse_mode=None)
+                        purpose=purpose,link=link,parse_mode=None)
         except TelegramAPIError:
             raise DeliveryError('wallet_adjustment_delivery_failed') from None
 

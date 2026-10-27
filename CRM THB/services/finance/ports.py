@@ -61,3 +61,9 @@ class DocumentWriter(Protocol):
 FinanceUowFactory = Callable[[], FinanceUnitOfWork]
 PlanBuilder = Callable[[PostingState], PostingPlan]
 Preparation = Callable[[FinanceUnitOfWork], Awaitable[None]]
+
+
+class CashAdjustmentReadPort(Protocol):
+    async def cash_adjustment_accounts(self, instrument: str) -> dict: ...
+    async def internal_quote(self, instrument: str, at=None, key: str | None = None): ...
+    async def cash_operation_by_message(self, chat_id: int, message_id: int) -> int | None: ...

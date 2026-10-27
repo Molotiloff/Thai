@@ -17,6 +17,7 @@ from domain.finance.models import (
     decimal,
     exact,
     revision_details,
+    rounded,
 )
 from domain.wallet_valuation import liability_change
 from services.expenses.ports import ExpenseReadPort, ExpenseUnitOfWork
@@ -37,27 +38,27 @@ def month(period):
 
 
 class ExpenseService:
-    def __init__(self, posting, reversals, queries: ExpenseReadPort):
+    def __init__(self, posting, reversals, queries: ExpenseReadPort, *, uow_factory=None):
         self._posting, self._reversals, self._queries = posting, reversals, queries
+        self._factory = uow_factory
+
+    async def bind_participant(self, *, key, actor_id, code, client_id):
+        if code not in ("skyex", "pe"):
+            raise InvalidPosting("Здесь настраиваются кошельки SkyEX и ПЕ; Данияр привязан через DANIYAR_CHAT")
+        from services.metadata_commands import MetadataCommandService
+
+        async def action(work):
+            return await work.expenses.bind_participant(code, client_id)
+
+        return await MetadataCommandService(self._factory).execute(
+            key=key, actor_id=actor_id, kind="expense_bind", permission="expense.post",
+            payload={"code": code, "client_id": client_id}, action=action,
+        )
 
     async def record(
-        self,
-        *,
-        key,
-        actor_id,
-        business_date,
-        effective_at,
-        category_id,
-        instrument,
-        amount,
-        quoted_rate,
-        payer,
-        shares,
-        comment="",
-        revision_id=None,
-        profit_revision_id=None,
-        deposit=False,
-        correction_of=None,
+        self, *, key, actor_id, business_date, effective_at, category_id, instrument,
+        amount, quoted_rate=None, payer, shares, comment="", revision_id=None,
+        profit_revision_id=None, deposit=False, correction_of=None, equal_split=False,
     ):
         if deposit:
             raise InvalidPosting("Возвратные депозиты отложены до следующего релиза")
@@ -65,116 +66,72 @@ class ExpenseService:
         amount = exact(decimal(amount), accounts["precision"])
         if amount <= 0:
             raise InvalidPosting("Сумма расхода должна быть положительной")
-        quote = FxQuote(
-            accounts["currency_code"],
-            decimal(quoted_rate),
-            "units_per_usdt" if accounts["currency_code"] == "THB" else "usdt_per_unit",
-            instrument,
-        )
-        value = quote.value(amount)
+        if accounts["currency_code"] == "USDT":
+            if quoted_rate is not None and decimal(quoted_rate) != 1:
+                raise InvalidPosting("Курс USDT всегда равен 1")
+            quoted_rate = "1"
+        if quoted_rate is None:
+            raise InvalidPosting("Укажите курс расхода для оценки в USDT")
+        quote = FxQuote(accounts["currency_code"], decimal(quoted_rate),
+            "units_per_usdt" if accounts["currency_code"] == "THB" else "usdt_per_unit", instrument)
+        value = rounded(quote.value(amount), 6)
         if value <= 0:
-            raise InvalidPosting("Оценка расхода меньше минимальной единицы USDT")
-        allocated, inputs = allocate_shares(
-            amount, value, accounts["precision"], shares, accounts["participants"]
-        )
+            raise InvalidPosting("Оценка расхода меньше минимальной единицы кошелька USDT")
+        allocated, inputs = allocate_shares(amount, value, accounts["precision"], shares,
+            accounts["participants"], usdt_precision=6, equal_split=equal_split)
+        personal = next(share.usdt for share in allocated if share.code == "daniyar")
         with localcontext() as context:
             context.prec = 80
-            business = sum(share.usdt for share in allocated if share.code != "daniyar")
-        personal = next(share for share in allocated if share.code == "daniyar")
+            business = value - personal
+        required = ({payer} if payer != "business" else set()) | ({"daniyar"} if personal else set())
+        wallets = await self._queries.wallet_bindings(required)
+        entries = {code: {**wallet, "credit": value if code == payer else decimal(0),
+            "debit": personal if code == "daniyar" else decimal(0)} for code, wallet in wallets.items()}
         ids = {accounts["operating_expense"], accounts["fx_income"], accounts["fx_loss"]}
+        ids.update(entry["wallet"] for entry in entries.values())
         if payer == "business":
-            ids |= {accounts["cash"], accounts["receivable"]}
-        elif business:
-            ids.add(accounts["funding"])
-        mode = PostingMode.LEDGER if payer == "business" or business else PostingMode.MEMORANDUM
-        payload = {
-            "actor_id": actor_id,
-            "category_id": category_id,
-            "instrument": instrument,
-            "amount": amount,
-            "rate": quote.quoted_rate,
-            "payer": payer,
-            "shares": inputs,
-            "comment": comment,
-            "effective_at": effective_at,
-            "expense_revision_id": revision_id,
-            "correction_of": correction_of,
-        }
-        command = OperationCommand(
-            key,
-            "expense",
-            actor_id,
-            business_date,
-            effective_at,
-            tuple(sorted(ids)),
-            canonical_json(revision_details(payload, profit_revision_id)),
-            context=LedgerContext.EXPENSES,
-            mode=mode,
-        )
+            ids.add(accounts["cash"])
+        payload = {"actor_id": actor_id, "category_id": category_id, "instrument": instrument,
+            "amount": amount, "rate": quote.quoted_rate, "usdt_total": value,
+            "payer": payer, "shares": inputs, "equal_split": equal_split,
+            "comment": comment, "effective_at": effective_at, "expense_revision_id": revision_id,
+            "correction_of": correction_of, "settlement_version": 2,
+            "wallets": entries}
+        command = OperationCommand(key, "expense", actor_id, business_date, effective_at,
+            tuple(sorted(ids)), canonical_json(revision_details(payload, profit_revision_id)),
+            context=LedgerContext.EXPENSES)
 
         async def prepare(work):
             await work.expenses.guard(actor_id, "expense.post")
             await work.expenses.category(category_id)
             if correction_of is not None:
                 await work.expenses.correction(correction_of)
+            for entry in sorted(entries.values(), key=lambda entry: entry["client_id"]):
+                await work.clients.lock_client(entry["client_id"])
+            await work.expenses.validate_wallets(entries)
 
         def build(state):
             lines = []
             if business:
-                lines.append(
-                    JournalLine(
-                        accounts["operating_expense"],
-                        "USDT",
-                        Side.DEBIT,
-                        business,
-                        business,
-                        Valuation.BASE,
-                    )
-                )
+                lines.append(JournalLine(accounts["operating_expense"], "USDT", Side.DEBIT,
+                    business, business, Valuation.BASE))
+            for entry in entries.values():
+                for field, side in (("credit", Side.CREDIT), ("debit", Side.DEBIT)):
+                    quantity = entry[field]
+                    if quantity:
+                        lines.append(JournalLine(entry["wallet"], "USDT", side, quantity, quantity, Valuation.BASE))
             if payer == "business":
-                if personal.amount:
-                    lines.append(
-                        JournalLine(
-                            accounts["receivable"],
-                            quote.currency,
-                            Side.DEBIT,
-                            personal.amount,
-                            personal.usdt,
-                            Valuation.CARRYING,
-                        )
-                    )
                 cost = state.position(instrument).withdrawal_cost(amount)
-                lines.append(
-                    JournalLine(
-                        accounts["cash"],
-                        quote.currency,
-                        Side.CREDIT,
-                        amount,
-                        cost,
-                        Valuation.CARRYING,
-                    )
-                )
-                return balance_with_fx(
-                    tuple(lines),
-                    income_account_id=accounts["fx_income"],
-                    loss_account_id=accounts["fx_loss"],
-                )
-            if business:
-                lines.append(
-                    JournalLine(
-                        accounts["funding"], "USDT", Side.CREDIT, business, business, Valuation.BASE
-                    )
-                )
-            return PostingPlan(tuple(lines), mode)
+                lines.append(JournalLine(accounts["cash"], quote.currency, Side.CREDIT,
+                    amount, cost, Valuation.CARRYING))
+            return balance_with_fx(tuple(lines), income_account_id=accounts["fx_income"],
+                loss_account_id=accounts["fx_loss"])
 
         async def save(operation_id, work, plan):
-            await work.expenses.save_expense(
-                operation_id, payload, quote, allocated, inputs, accounts
-            )
+            await work.expenses.save_expense(operation_id, payload, quote, allocated, inputs, accounts)
 
-        return await self._posting.post(
-            command, build, prepare=prepare, document=ExpenseDocument(save),valuation_quotes=(quote,) if payer=="business" else ()
-        )
+        return await self._posting.post(command, build, prepare=prepare,
+            document=ExpenseDocument(save), valuation_quotes=(quote,) if payer == "business" else ())
 
     async def settle(
         self,

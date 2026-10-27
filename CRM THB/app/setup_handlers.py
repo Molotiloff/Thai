@@ -101,7 +101,7 @@ def create_router(commands, *, archive_handler=None, aml_handler=None):
     commands.managers=ManagersHandler(container.manager_admin,config.admin_chat_id,authorize=commands.authorize)
     commands.broadcast=BroadcastAllHandler(container.client_queries,
         broadcast_service=BroadcastService(repo=container.client_queries,
-            excluded_chat_ids={value for value in (config.admin_chat_id,config.operations_chat_id) if value is not None}),
+            excluded_chat_ids={value for value in (config.admin_chat_id,config.operations_chat_id,*config.cash_chat_ids) if value is not None}),
         session_store=AiogramBroadcastSessionStore(),preview_builder=AiogramBroadcastPresenter(),
         admin_chat_ids={config.admin_chat_id} if config.admin_chat_id is not None else set(),strict_staff_roles=True)
 
@@ -169,6 +169,8 @@ def create_router(commands, *, archive_handler=None, aml_handler=None):
                     await message.answer('Архивирование отключено в этом процессе.')
                 else:
                     await archive_handler._command(message)
+                return
+            if await WalletsHandler.accounting_cash_chat_command(commands,message,command):
                 return
             if await PaymentWatchHandler.accounting_command(commands,message,command):
                 return

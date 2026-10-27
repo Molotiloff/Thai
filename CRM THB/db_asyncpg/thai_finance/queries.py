@@ -37,6 +37,62 @@ class FinanceQueries:
         """)
         return [dict(row) for row in rows]
 
+    async def internal_quote(self, instrument, at=None, key=None):
+        from db_asyncpg.internal_rates import InternalRates
+        return await InternalRates(self._pool).quote(instrument,at,key)
+
+    async def cash_adjustment_accounts(self, instrument):
+        row=await self._pool.fetchrow("""
+            SELECT c.ledger_account_id AS cash,i.currency_code AS currency,i.precision,a.id AS offset
+            FROM cash_accounts c JOIN instruments i ON i.code=c.instrument_code AND i.is_active
+            JOIN ledger_accounts a ON a.instrument_code=i.code AND a.purpose='cash_adjustment_offset'
+            WHERE c.instrument_code=$1
+        """,instrument)
+        if row is None:
+            raise InvalidPosting('Кассовый счёт не найден')
+        return dict(row)
+
+    async def cash_operation_by_message(self, chat_id, message_id):
+        return await self._pool.fetchval("""
+            SELECT o.id FROM telegram_message_links l JOIN financial_operations o ON o.id=l.operation_id
+            WHERE l.chat_id=$1 AND l.message_id=$2 AND l.purpose='cash_adjustment'
+                AND o.kind='manual_journal' AND o.command_details->>'purpose'='cash_adjustment'
+                AND (o.command_details->>'chat_id')::bigint=$1
+        """,chat_id,message_id)
+
+    async def cash_history(self, instrument=None, *, before_id=None, limit=16, since=None, until=None):
+        if limit is not None and not 1<=limit<=100:
+            raise InvalidPosting('Размер страницы должен быть от 1 до 100')
+        if before_id is not None and before_id<=0:
+            raise InvalidPosting('Некорректная страница выписки')
+        rows=await self._pool.fetch("""
+            WITH moves AS (
+                SELECT o.id,c.instrument_code,
+                    sum(CASE l.side WHEN 'debit' THEN l.native_amount ELSE -l.native_amount END) AS quantity_delta
+                FROM journal_lines l JOIN cash_accounts c ON c.ledger_account_id=l.account_id
+                JOIN financial_operations o ON o.id=l.operation_id
+                WHERE o.status='posted' AND ($1::text IS NULL OR c.instrument_code=$1)
+                GROUP BY o.id,c.instrument_code
+            ), timeline AS (
+                SELECT *,sum(quantity_delta) OVER(PARTITION BY instrument_code ORDER BY id) AS balance_after
+                FROM moves
+            )
+            SELECT o.*,t.instrument_code,t.quantity_delta,t.balance_after,u.display_name AS actor_name
+            FROM timeline t JOIN financial_operations o ON o.id=t.id JOIN users u ON u.id=o.created_by
+            WHERE t.quantity_delta<>0 AND ($2::bigint IS NULL OR o.id<$2)
+                AND ($3::timestamptz IS NULL OR o.effective_at >= $3)
+                AND ($4::timestamptz IS NULL OR o.effective_at < $4)
+            ORDER BY o.id DESC,t.instrument_code LIMIT $5::bigint
+        """,instrument,before_id,since,until,limit)
+        return [operation_dict(row) for row in rows]
+
+    async def export_cash_transactions(self, *, since=None, until=None):
+        rows=await self.cash_history(limit=None,since=since,until=until)
+        return [{'operation_id':row['id'],'txn_at':row['effective_at'],'currency_code':row['instrument_code'],
+            'amount':row['quantity_delta'],'balance_after':row['balance_after'],'group_name':'Общая касса',
+            'actor_name':row['actor_name'],'source':row['kind'],
+            'comment':row['reason'] or row['command_details'].get('comment','')} for row in reversed(rows)]
+
     async def history(self, *, before_id: int | None = None, limit: int = 50) -> list[dict]:
         if not 1 <= limit <= 100:
             raise InvalidPosting("Размер страницы должен быть от 1 до 100")

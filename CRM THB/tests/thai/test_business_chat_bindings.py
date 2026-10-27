@@ -10,7 +10,7 @@ from app.container import ApplicationContainer
 from app.thai_telegram import ThaiTelegramDelivery
 from db_asyncpg.thai_finance.queries import OutboxDeliveryRepository
 from domain.finance.models import InvalidPosting
-from tests.thai.test_expenses import pay, record
+from tests.thai.test_expenses import record
 from tests.thai.test_posting import fund
 from tests.thai.test_profit import close, deal
 
@@ -48,13 +48,14 @@ async def test_configured_daniyar_wallet_receives_bestchange_and_pays_expense_sh
     dany=clients['daniyar_balance']
     await record(finance,payer='business')
     assert (next(row for row in await app.client_queries.wallets(dany) if row['instrument_code']=='THB_CASH'))['balance']==0
-    settlement=await pay(finance,creditor='business',method='wallet',amount='200',instrument='THB_CASH',quoted_rate='35')
-    assert (next(row for row in await app.client_queries.wallets(dany) if row['instrument_code']=='THB_CASH'))['balance']==-200
-    assert await pay(finance,creditor='business',method='wallet',amount='200',instrument='THB_CASH',quoted_rate='35')==settlement
+    usdt=next(row for row in await app.client_queries.wallets(dany) if row['instrument_code']=='USDT')
+    assert usdt['balance']==Decimal('-5.714286')
+    # Owners are also bound now; startup must continue resolving exactly the BestChange pair.
+    assert await app.initialize_business_chats()==clients
     await deal(finance)
     await close(finance)
     usdt=next(row for row in await app.client_queries.wallets(dany) if row['instrument_code']=='USDT')
-    assert usdt['balance']>0
+    assert usdt['balance']==Decimal('-4.714286')
 
 
 async def test_env_change_cannot_reassign_existing_business_accounts(finance):

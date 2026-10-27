@@ -42,6 +42,17 @@ class Config:
     daniyar_chat_id: int | None = None
 
     @property
+    def cash_chat_ids(self):
+        # Every configured Thai cash chat represents the same pooled cash accounts.
+        return frozenset(self.city_cash_chat_map.values())
+
+    def is_cash_chat(self, chat_id):
+        return chat_id in self.cash_chat_ids
+
+    def can_settle_cash(self, chat_id, source_chat_id=None):
+        return self.is_cash_chat(chat_id) or chat_id == (self.operations_chat_id or source_chat_id)
+
+    @property
     def request_chat_id(self):
         return self.operations_chat_id
 

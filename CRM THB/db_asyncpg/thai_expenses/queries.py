@@ -39,6 +39,21 @@ class ExpenseQueries:
                 result.setdefault("owner_funding", {})[row["party_id"]] = row["id"]
         return result
 
+    async def wallet_bindings(self, required):
+        from db_asyncpg.thai_clients.queries import ClientQueries
+        result = {}
+        for code in sorted(required):
+            row = await self._pool.fetchrow("""
+                SELECT c.id,c.group_code,c.is_active FROM business_client_bindings b JOIN clients c ON c.id=b.client_id
+                WHERE b.purpose=$1
+            """, code + "_balance")
+            if row is None or not row["is_active"] or (code != "daniyar" and row["group_code"] != "partner"):
+                label = {"skyex": "SkyEX", "pe": "ПЕ", "daniyar": "Данияра"}[code]
+                raise InvalidPosting(f"Настройте активный USDT-кошелёк {label} для расходов")
+            result[code] = {"client_id": row["id"],
+                "wallet": (await ClientQueries(self._pool).wallet_accounts(row["id"], "USDT"))["wallet"]}
+        return result
+
     async def posting_mode(self, key):
         return await self._pool.fetchval(
             "SELECT posting_mode FROM financial_operations WHERE idempotency_key=$1 AND status='posted'",
@@ -87,7 +102,10 @@ class ExpenseQueries:
         return [
             dict(row)
             for row in await self._pool.fetch(
-                "SELECT b.*,p.name FROM business_participants b JOIN parties p ON p.id=b.party_id ORDER BY b.code"
+                """SELECT b.*,p.name,c.id AS client_id,c.group_code,c.is_active AS client_active
+                FROM business_participants b JOIN parties p ON p.id=b.party_id
+                LEFT JOIN business_client_bindings binding ON binding.purpose=b.code||'_balance'
+                LEFT JOIN clients c ON c.id=binding.client_id ORDER BY b.code"""
             )
         ]
 
@@ -109,6 +127,7 @@ class ExpenseQueries:
             ("inputs", "expense_share_inputs"),
             ("allocations", "expense_allocations"),
             ("obligations", "expense_obligations"),
+            ("wallet_entries", "expense_wallet_entries"),
         ):
             result[key] = [
                 dict(row)
@@ -184,7 +203,20 @@ class ExpenseQueries:
                 participant_id,
                 currency,
             )
+            wallet_balances = await connection.fetch("""
+                SELECT p.party_id,p.code,n.name,c.id AS client_id,'USDT'::text AS currency_code,
+                    greatest(-b.balance,0) AS payable,greatest(b.balance,0) AS receivable,
+                    -b.balance AS net_payable,b.balance AS wallet_balance
+                FROM business_participants p JOIN parties n ON n.id=p.party_id
+                JOIN business_client_bindings binding ON binding.purpose=p.code||'_balance'
+                JOIN clients c ON c.id=binding.client_id
+                JOIN client_wallet_accounts w ON w.client_id=c.id AND w.kind='client' AND w.instrument_code='USDT'
+                JOIN posted_account_balances b ON b.account_id=w.ledger_account_id
+                WHERE ($1::bigint IS NULL OR p.party_id=$1) AND ($2::text IS NULL OR $2='USDT')
+                ORDER BY p.code
+            """, participant_id, currency)
             return {
+                "wallet_balances": [dict(row) for row in wallet_balances],
                 "obligations": [dict(row) for row in obligations],
                 "totals": [dict(row) for row in totals],
                 "by_participant": [dict(row) for row in by_participant],
@@ -230,6 +262,7 @@ class ExpenseQueries:
             stale = await connection.fetchval(
                 """
                 SELECT EXISTS(SELECT 1 FROM expense_period_closures x WHERE x.period<$1 AND x.operation_id>$2)
+                    OR EXISTS(SELECT 1 FROM expense_wallet_events x WHERE x.business_date<($1::date+interval '1 month') AND x.operation_id>$2)
             """,
                 period,
                 closure["operation_id"],

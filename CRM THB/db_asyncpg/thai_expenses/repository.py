@@ -11,6 +11,33 @@ class ExpenseRepository:
 
         await JournalRepository(self._db)._permission(actor_id, permission)
 
+    async def bind_participant(self, code, client_id):
+        await self._db.execute("SELECT pg_advisory_xact_lock(740810,7)")
+        client = await self._db.fetchrow("SELECT * FROM clients WHERE id=$1 FOR UPDATE", client_id)
+        if client is None or not client["is_active"] or client["group_code"] != "partner":
+            raise InvalidPosting("Выберите активного клиента группы Партнер")
+        purpose = code + "_balance"
+        existing = await self._db.fetchval("SELECT client_id FROM business_client_bindings WHERE purpose=$1", purpose)
+        if existing is not None and existing != client_id:
+            raise InvalidPosting("Кошелёк участника уже привязан; перенос баланса выполняется отдельно")
+        if await self._db.fetchval("SELECT EXISTS(SELECT 1 FROM business_client_bindings WHERE client_id=$1 AND purpose<>$2)", client_id, purpose):
+            raise InvalidPosting("Этот клиент уже привязан к другому участнику или BestChange")
+        await self._db.execute("INSERT INTO business_client_bindings(purpose,client_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", purpose, client_id)
+        return {"code": code, "client_id": client_id}
+
+    async def validate_wallets(self, entries):
+        for code, entry in entries.items():
+            valid = await self._db.fetchval("""
+                SELECT EXISTS(SELECT 1 FROM business_client_bindings b
+                    JOIN clients c ON c.id=b.client_id
+                    JOIN client_wallet_accounts w ON w.client_id=c.id AND w.kind='client' AND w.instrument_code='USDT'
+                    JOIN ledger_accounts a ON a.id=w.ledger_account_id AND a.is_active
+                    WHERE b.purpose=$1 AND b.client_id=$2 AND w.ledger_account_id=$3 AND c.is_active
+                        AND ($1='daniyar_balance' OR c.group_code='partner'))
+            """, code + "_balance", entry["client_id"], entry["wallet"])
+            if not valid:
+                raise InvalidPosting("Привязка кошелька изменилась или клиент неактивен; обновите форму")
+
     async def category(self, category_id):
         if not await self._db.fetchval(
             "SELECT EXISTS(SELECT 1 FROM expense_categories WHERE id=$1 AND is_active)", category_id
@@ -52,14 +79,14 @@ class ExpenseRepository:
         cash = command["payer"] == "business"
         expense_id = await self._db.fetchval(
             """
-            INSERT INTO expenses(operation_id,category_id,currency_code,amount,amount_usdt,rate_snapshot_id,payer_kind,payer_party_id,cash_instrument_code,comment)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id
+            INSERT INTO expenses(operation_id,category_id,currency_code,amount,amount_usdt,rate_snapshot_id,payer_kind,payer_party_id,cash_instrument_code,comment,settlement_version)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,2) RETURNING id
         """,
             operation_id,
             command["category_id"],
             quote.currency,
             command["amount"],
-            quote.value(command["amount"]),
+            command["usdt_total"],
             rate_id,
             "cash" if cash else "party",
             None if cash else accounts["participants"][command["payer"]],
@@ -79,32 +106,11 @@ class ExpenseRepository:
                 share.amount,
                 share.usdt,
             )
-            if (
-                not share.amount
-                or (cash and share.code != "daniyar")
-                or (not cash and share.code == command["payer"])
-            ):
-                continue
-            account = (
-                accounts["receivable"]
-                if cash
-                else accounts["funding"]
-                if command["payer"] == "daniyar"
-                else None
-            )
-            await self._db.execute(
-                """
-                INSERT INTO expense_obligations(expense_id,currency_code,debtor_party_id,creditor_party_id,amount,original_usdt,business_ledger_account_id)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7)
-            """,
-                expense_id,
-                quote.currency,
-                share.party_id,
-                accounts["participants"][command["payer"]],
-                share.amount,
-                share.usdt,
-                account,
-            )
+        for code, entry in command["wallets"].items():
+            await self._db.execute("""
+                INSERT INTO expense_wallet_entries(expense_id,operation_id,participant_code,client_id,wallet_account_id,credit_usdt,debit_usdt)
+                VALUES ($1,$2,$3,$4,$5,$6,$7)
+            """, expense_id, operation_id, code, entry["client_id"], entry["wallet"], entry["credit"], entry["debit"])
         if command.get("correction_of") is not None:
             await self._db.execute(
                 "INSERT INTO expense_corrections VALUES ($1,$2,$3)",
@@ -182,8 +188,8 @@ class ExpenseRepository:
         for row in rows:
             await self._db.execute(
                 """
-                INSERT INTO expense_statement_rows(closure_id,debtor_party_id,creditor_party_id,currency_code,opening,accrued,settled,netted,corrected,closing)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                INSERT INTO expense_statement_rows(closure_id,debtor_party_id,creditor_party_id,currency_code,wallet_mode,opening,accrued,settled,netted,corrected,withheld,other_movements,closing)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
             """,
                 closure_id,
                 *tuple(row),

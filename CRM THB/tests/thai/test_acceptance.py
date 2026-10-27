@@ -12,7 +12,6 @@ from domain.finance.models import PeriodClosed
 from tests.postgres import disposable_thai_database
 from tests.thai.test_capital import accrue, contribute, withdraw
 from tests.thai.test_expenses import common, ledger, record, totals
-from tests.thai.test_expenses import pay as settle
 from tests.thai.test_posting import balance
 from tests.thai.test_profit import PERIOD, close, configure
 
@@ -98,8 +97,8 @@ async def scenario(finance):
         client_id=customer,
     )
     await record(finance)
-    assert await totals(finance) == {("daniyar", "pe", "THB"): 200, ("skyex", "pe", "THB"): 400}
-    assert all(w["balance"] == (35 if w["instrument_code"] == "USDT" else 0) for w in await app.client_queries.wallets(dany))
+    assert await totals(finance) == {"pe":Decimal("28.571429"),"daniyar":Decimal("29.285714")}
+    assert all(w["balance"] == (Decimal("29.285714") if w["instrument_code"] == "USDT" else 0) for w in await app.client_queries.wallets(dany))
     await accrue(finance, agreement, approved=Decimal(10))
     report = await app.profit_queries.report(PERIOD)
     assert (
@@ -107,7 +106,7 @@ async def scenario(finance):
         report["business_expenses_usdt"],
         report["investor_interest_usdt"],
         report["net_profit_usdt"],
-    ) == (35, Decimal("22.85714286"), 10, Decimal("2.14285714"))
+    ) == (35, Decimal("22.857143"), 10, Decimal("2.142857"))
     await app.expenses.close(
         key="statement",
         actor_id=finance["actor"],
@@ -118,14 +117,14 @@ async def scenario(finance):
     closed = await close(finance)
     assert await close(finance) == closed
     snapshot = await app.profit_queries.closure(PERIOD)
-    assert [r["amount_usdt"] for r in snapshot["accruals"]] == [Decimal("1.07142857")] * 2
+    assert [r["amount_usdt"] for r in snapshot["accruals"]] == [Decimal("1.07142850")] * 2
     assert (
         next(
             w["balance"]
             for w in await app.client_queries.wallets(dany)
             if w["instrument_code"] == "USDT"
         )
-        == 35
+        == Decimal("29.285714")
     )
     for owner in ("pe", "skyex"):
         await app.profit.pay(
@@ -141,10 +140,13 @@ async def scenario(finance):
         quantity="10",
         reason="Approved manager payout",
     )
-    await settle(finance, key="dany-settle", amount="200", day=NOV)
-    await settle(finance, key="sky-settle", amount="400", debtor="skyex", day=NOV)
+    balances=(await app.expense_queries.debts())["wallet_balances"]
+    for row in balances:
+        if row["wallet_balance"]>0:
+            await app.wallets.withdraw(**common(finance,"expense-repayment-"+row["code"],NOV),
+                client_id=row["client_id"],instrument="USDT",quantity=str(row["wallet_balance"]))
     assert not await totals(finance)
-    assert await ledger(finance, "owner_profit_payable") == Decimal("0.00000114")
+    assert await ledger(finance, "owner_profit_payable") == Decimal("0.000001")
     assert (await app.capital_queries.detail(agreement))["interest_due_usdt"] == 0
     before = await balance(finance, "THB_CASH")
     returned = await withdraw(finance, agreement, instrument="THB_CASH", quantity="40000", day=NOV)

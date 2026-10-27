@@ -163,6 +163,8 @@ class RussianTelegramCommands:
         self._app, self._config = app, config
 
     async def execute_customer(self, *, command, args, key, telegram_user_id, chat_id, chat_name):
+        if self._config.is_cash_chat(chat_id) and command in ('/start','/дай'):
+            return None  # Staff-only pooled cash view; never bootstrap a customer here.
         if command in ("/start", "/дай"):
             name = chat_name or await self._app.client_queries.chat_name(chat_id) or f"Клиент {chat_id}"
             client_id = await self._app.client_bootstrap.ensure_telegram_client_wallet(
@@ -192,7 +194,50 @@ class RussianTelegramCommands:
             return "Клавиатура скрыта. Чтобы вернуть — /кнопки."
         return None
 
+    async def _cash_chat(self,command,args,chat_id,common):
+        if command in ('/start','/кошелек','/кошелёк','/дай'):
+            if len(args)>1 or (command!='/дай' and args):
+                raise InvalidPosting(f'{command}'+(' [валюта]' if command=='/дай' else ''))
+            code=instrument(args[0]) if args else None
+            rows=[{'currency_code':row['instrument_code'],'precision':6 if row['instrument_code']=='USDT' else 2,
+                'balance':row['balance']} for row in await self._app.queries.cash_balances()]
+            if code:
+                rows=[row for row in rows if row['currency_code']==code]
+            if command=='/дай' and not code:
+                rows=[row for row in rows if row['balance']]
+                if not rows:
+                    return 'Общая касса: все счета нулевые. Посмотреть всё: /кошелек'
+            return WalletTextBuilder.wallet_text(chat_name='общей кассы Таиланда',rows=rows)
+        if command=='/выписка':
+            if len(args)>1:
+                raise InvalidPosting('/выписка [валюта]')
+            code=instrument(args[0]) if args else 'THB_CASH'
+            rows=await self._app.queries.cash_history(code,limit=15)
+            return WalletTextBuilder.statement_text(code,rows)
+        if command[1:] in INSTRUMENTS:
+            if not args:
+                raise InvalidPosting(f'{command} сумма [! комментарий]')
+            if len(args)==2 and re.fullmatch(r'Б-\d+',args[1]):
+                return None  # Use the shared request settlement below, with both sides checked.
+            if len(args)>1 and not args[1].startswith('!'):
+                raise InvalidPosting('Для расчёта клиента укажите номер заявки Б-…; для корректировки кассы: /бат 1000 ! комментарий')
+            code=instrument(command[1:])
+            operation=await self._app.manual_cash.adjust(**common,chat_id=chat_id,instrument=code,
+                quantity=amount(args[0],code,signed=True),comment=' '.join(args[1:]).lstrip('! ').strip())
+            balance=next(row['balance'] for row in await self._app.queries.cash_balances() if row['instrument_code']==code)
+            return self._app.wallet_interactions.accounting_response({'instrument':code,'quantity':amount(args[0],code,signed=True)},balance)+f'\nОбщая касса · операция #{operation.id}'
+        if command in RECEIVE or command in CASH or command in FX_CASH or command in (
+                '/регистрация','/привязать','/обнулить','/закрыть','/перевод'):
+            raise InvalidPosting('Это чат общей кассы, а не клиента. Создайте заявку в чате клиента или CRM; здесь проведите расчёт по номеру Б-…')
+        if command in ('/добавь','/удали'):
+            return 'В общей кассе восемь постоянных счетов. Посмотреть: /кошелек'
+        return None
+
     async def execute(self, *, command, args, text, chat_id, common, chat_name=None, telegram_user_id=None, actor_name=None):
+        if self._config.is_cash_chat(chat_id):
+            response=await self._cash_chat(command,args,chat_id,common)
+            if response is not None:
+                return response
         response = await self._workflow(command, args, chat_id, common)
         if response is not None:
             return response
@@ -219,8 +264,7 @@ class RussianTelegramCommands:
             return await self._profit(args, common)
         if command[1:] in INSTRUMENTS and len(args)==2 and re.fullmatch(r'Б-\d+', args[1]):
             request = await self._app.trading_queries.detail(self._app.cash_requests.deal_id(args[1]))
-            allowed_chat = self._config.operations_chat_id or request['attributes'].get('source_chat_id')
-            if chat_id != allowed_chat:
+            if not self._config.can_settle_cash(chat_id,request['attributes'].get('source_chat_id')):
                 raise InvalidPosting('Кассовый расчёт проводится в рабочем чате заявки')
             code = instrument(command[1:])
             signed = amount(args[0], code, signed=True)

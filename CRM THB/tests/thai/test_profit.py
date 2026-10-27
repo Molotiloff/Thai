@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from domain.finance.models import InvalidPosting, PeriodClosed, ReversalBlocked
-from tests.thai.test_expenses import common, ledger
+from tests.thai.test_expenses import bind_wallets, common, ledger
 from tests.thai.test_posting import DAY, INSTANT, balance, fund
 
 PERIOD = date(2026, 10, 1)
@@ -291,6 +291,7 @@ async def test_expense_and_interest_correction_in_profit_revision(finance):
         reason="Manager",
     )
     category = await finance["pool"].fetchval("SELECT min(id) FROM expense_categories")
+    await bind_wallets(finance)
     expense = await finance["app"].expenses.record(
         **common(finance, "expense"),
         category_id=category,
@@ -374,7 +375,9 @@ async def test_expense_and_interest_correction_in_profit_revision(finance):
     await close(finance, key="close2", profit_revision_id=revision)
     assert (await finance["app"].profit_queries.closure(PERIOD))["net_profit_usdt"] == 800
     assert await finance["app"].profit_queries.closure(PERIOD, 1) == old
-    assert await finance["app"].expense_queries.statement(PERIOD, 1) == old_expense
+    original_statement = await finance["app"].expense_queries.statement(PERIOD, 1)
+    assert original_statement["rows"] == old_expense["rows"]
+    assert original_statement["needs_revision"]
 
 
 async def test_terms_permissions_payout_and_frozen_closure(finance):

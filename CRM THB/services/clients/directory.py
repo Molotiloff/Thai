@@ -7,8 +7,13 @@ from services.metadata_commands import MetadataCommandService
 
 
 class ClientDirectoryService:
-    def __init__(self, uow_factory: FinanceUowFactory):
+    def __init__(self, uow_factory: FinanceUowFactory, *, reserved_chat_ids=()):
         self._commands = MetadataCommandService(uow_factory)
+        self._reserved_chat_ids=frozenset(reserved_chat_ids)
+
+    def _validate_client_chat(self,chat_id):
+        if chat_id in self._reserved_chat_ids:
+            raise InvalidPosting('Чат общей кассы нельзя привязать к клиенту')
 
     async def _execute(self, *, key, actor_id, kind, payload, action):
         return await self._commands.execute(
@@ -44,6 +49,7 @@ class ClientDirectoryService:
     async def create_client(
         self, *, key, actor_id, name=None, party_id=None, group_code="balance", chat_id=None
     ):
+        self._validate_client_chat(chat_id)
         if (name is None) == (party_id is None) or (name is not None and not name.strip()):
             raise InvalidPosting("Укажите имя нового клиента или существующего участника")
 
@@ -72,6 +78,7 @@ class ClientDirectoryService:
         )
 
     async def bind_chat(self, *, key, actor_id, client_id, chat_id):
+        self._validate_client_chat(chat_id)
         return await self._execute(
             key=key,
             actor_id=actor_id,

@@ -20,6 +20,7 @@ from db_asyncpg.thai_profit.uow import AsyncpgProfitUnitOfWork
 from db_asyncpg.thai_trading.queries import TradingQueries
 from db_asyncpg.thai_trading.uow import AsyncpgTradingUnitOfWork
 from services.accounting.cash_settlement_service import CashSettlementService
+from services.accounting.manual_cash_service import ManualCashService
 from services.accounting.profit_service import ProfitService
 from services.act_counter import ActCounterService
 from services.admin_client.client_bootstrap_service import ClientBootstrapService
@@ -105,6 +106,8 @@ class ApplicationContainer:
     act_counter: ActCounterService
     manager_admin: ManagerAdminService
 
+    manual_cash: ManualCashService
+
     config: Config | None = None
 
     @classmethod
@@ -126,7 +129,7 @@ class ApplicationContainer:
             return AsyncpgClientUnitOfWork(pool)
 
         client_queries = ClientQueries(pool)
-        directory = ClientDirectoryService(client_uow)
+        directory = ClientDirectoryService(client_uow,reserved_chat_ids=config.cash_chat_ids if config else ())
 
         def trading_uow():
             return AsyncpgTradingUnitOfWork(pool)
@@ -148,7 +151,7 @@ class ApplicationContainer:
 
         expense_queries = ExpenseQueries(pool)
         expenses = ExpenseService(
-            OperationPostingService(expense_uow), ReversalService(expense_uow), expense_queries
+            OperationPostingService(expense_uow), ReversalService(expense_uow), expense_queries, uow_factory=expense_uow
         )
 
         def profit_uow():
@@ -192,7 +195,7 @@ class ApplicationContainer:
             CashRequestService(cmd_map=ACCOUNTING_CMD_MAP, fx_cmd_map=ACCOUNTING_FX_CMD_MAP, admin_chat_ids=set(), admin_user_ids=set(),
                 ledger_uow_factory=trading_uow, wallet_queries=client_queries, trade_queries=trading_queries, wallets=wallets,
                 settlements=CashSettlementService(ledger_uow_factory=trading_uow,trading=trading,queries=trading_queries)),
-            ClientBootstrapService(uow_factory=client_uow),
+            ClientBootstrapService(uow_factory=client_uow,reserved_chat_ids=config.cash_chat_ids if config else ()),
             AcceptShortService(accounting_trading=trading,wallet_queries=client_queries,trading_queries=trading_queries,
                 source_links=ExchangeSourceLinkService(accounting_repository=trading_queries)),
             client_transfers,
@@ -207,6 +210,8 @@ class ApplicationContainer:
             MessageArchiveRepo(pool,client_lookup=client_queries),
             ActCounterService(account=ActCounterRepo(pool),uow_factory=client_uow),
             ManagerAdminService(client_queries,uow_factory=client_uow),
+            ManualCashService(posting=OperationPostingService(client_uow),queries=FinanceQueries(pool),
+                reversals=ReversalService(client_uow),ledger_uow_factory=client_uow),
             config,
         )
 
@@ -216,6 +221,8 @@ class ApplicationContainer:
     async def initialize_business_chats(self):
         if self.config is None or not self.config.best_change_chat_id or not self.config.daniyar_chat_id:
             return None
+        if {self.config.best_change_chat_id,self.config.daniyar_chat_id} & self.config.cash_chat_ids:
+            raise RuntimeError('Кассовый чат нельзя использовать как клиента BestChange или Баланс Данияр')
         actor=await self.pool.fetchval("""
             SELECT u.id FROM users u WHERE u.is_active AND EXISTS(
                 SELECT 1 FROM user_roles r JOIN role_permissions p ON p.role=r.role

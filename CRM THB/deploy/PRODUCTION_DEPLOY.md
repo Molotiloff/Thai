@@ -13,7 +13,7 @@
 | Frontend Next.js standalone | `127.0.0.1:3001` |
 | PostgreSQL | отдельный кластер `thai`, `127.0.0.1:5433` |
 | База / новый пользователь БД | `thai_crm` / `thai_crm_app` |
-| Схема / ревизия | `public`, `thai_0024`, таблица `alembic_version_thai` |
+| Схема / ревизия | `public`, `thai_0026`, таблица `alembic_version_thai` |
 | Учёт | THB, себестоимость и прибыль USDT, Asia/Bangkok |
 
 Существующие PostgreSQL на **5432**, базу, пользователя, бота, Nginx vhost и
@@ -197,8 +197,8 @@ python3.12 -m venv .venv
 ## 4. Развернуть и проверить итоговую схему
 
 Источники схемы: `db_asyncpg/thai_migrations/versions` и замороженные SQL в
-`db_asyncpg/thai_migrations/sql`. Текущая цепочка — **21 миграция**,
-`thai_0001` → `thai_0024`. Читаемый итоговый снимок — `db_asyncpg/schema.sql`.
+`db_asyncpg/thai_migrations/sql`. Текущая цепочка — **26 миграций**,
+`thai_0001` → `thai_0026`. Читаемый итоговый снимок — `db_asyncpg/schema.sql`.
 Проверка: [SCHEMA_VERIFICATION.md](thai/SCHEMA_VERIFICATION.md).
 Российская цепочка и её снимок удалены. `architecture/thai/schema_draft.sql` —
 архитектурный черновик, для установки его не использовать.
@@ -213,7 +213,7 @@ python3.12 -m venv .venv
 psql -X -h 127.0.0.1 -p 5433 -U thai_crm_app -d thai_crm -W -v ON_ERROR_STOP=1 -f deploy/thai/verify_initial_database.sql
 ```
 
-- [ ] Status показывает `thai`, `thai_0024`, `thai_crm`, порт **5433**.
+- [ ] Status показывает `thai`, `thai_0026`, `thai_crm`, порт **5433**.
 - [ ] `verify_initial_database.sql` завершился без ошибки: ноль клиентов,
   денежных операций, вкладов, расходов и остатков; 8 валютных инструментов
   и 8 кассовых счетов, одна безналичная касса.
@@ -379,3 +379,8 @@ Thai, сверить операции после backup и уже доставл
 - [ ] Backup создаётся и проверенное восстановление выполнено.
 - [ ] Записаны фактические пути релизов, версия PostgreSQL, домен и ревизия.
 - [ ] Ответственный за учёт принял контрольные сценарии перед рабочими операциями.
+
+
+### Обновление расходов до thai_0026
+
+После резервной копии применить штатный bootstrap до `thai_0026` и обновить backend/frontend вместе. Миграция не создаёт новых клиентов и не пересчитывает старые операции. В разделе «Расходы» выбрать существующие кошельки SkyEX/ПЕ из группы «Партнер»; Данияр берётся из прежней привязки DANIYAR_CHAT. Курс вводится в каждом не-USDT расходе, взаиморасчёты только USDT. Возврат плательщику — обычная выдача клиенту. Подробности: `architecture/thai/EXPENSE_ACCOUNTING_REDESIGN.md`.
