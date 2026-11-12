@@ -16,6 +16,7 @@ from domain.finance.models import (
     PeriodClosed,
     ReversalBlocked,
 )
+from tests.thai.telegram_stub import telegram_mock
 from tests.thai.test_posting import INSTANT, balance, fund
 
 
@@ -24,8 +25,7 @@ async def setup(finance, *, operations_chat=-999):
     for mid,text in ((1,'/start'),(2,'/пт 100 обат 3300 первоначальная')):
         await commands.execute(telegram_user_id=12345,chat_id=-123,message_id=mid,text=text,
             effective_at=INSTANT,chat_name='Клиент <А>',actor_name='Автор <Б>')
-    telegram = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=900)),
-        edit_message_text=AsyncMock())
+    telegram = telegram_mock()
     delivery = ThaiTelegramDelivery(finance['app'],telegram,operations_chat)
     event = await OutboxDeliveryRepository(finance['pool']).claim()
     await delivery.deliver(event)
@@ -56,7 +56,7 @@ async def test_exchange_edit_is_atomic_and_retry_keeps_same_request(finance):
     context = await finance['app'].trading_queries.exchange_context(2)
     assert context['root']['id']==1 and context['active']['effective_status']=='posted'
     await delivery.deliver_exchange_request(1)
-    assert telegram.send_message.await_count==2
+    assert telegram.send_message.await_count==4
     assert telegram.edit_message_text.await_count==2
     for call in telegram.edit_message_text.call_args_list:
         assert '<b>Заявка</b>: <code>1</code>' in call.args[0]
@@ -89,13 +89,15 @@ async def test_crm_client_purchase_posts_like_bot_and_delivers_original_cards(fi
     assert balances['USDT']==-100 and balances['THB_CASH']==3300
     assert all(row['balance']==0 for row in await app.queries.cash_balances())
     assert await finance['pool'].fetchval('SELECT count(*) FROM financial_operations')==1
-    bot=SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=900)),edit_message_text=AsyncMock())
+    bot=telegram_mock()
     delivery=ThaiTelegramDelivery(app,bot,-999)
     event=await OutboxDeliveryRepository(finance['pool']).claim()
     await delivery.deliver(event)
     await delivery.deliver(event)
     assert {call.args[0] for call in bot.send_message.call_args_list}=={-333,-999}
     for call in bot.send_message.call_args_list:
+        if call.args[1].startswith('USDT ACT:'):
+            continue
         assert '<b>Заявка</b>: <code>1</code>' in call.args[1]
         assert '3’300.00 бат' in call.args[1]
         if call.args[0]==-999:
@@ -154,7 +156,7 @@ async def test_cancel_rejects_stale_forged_and_unauthorized_buttons(finance):
     await commands.cancel_exchange(telegram_user_id=12345,chat_id=-999,message_id=900,data='req_cancel:1:2')
     assert all(value==0 for value in (await wallets(finance)).values())
     await delivery.deliver_exchange_request(1)
-    assert telegram.send_message.await_count==2
+    assert telegram.send_message.await_count==4
     for call in telegram.edit_message_text.call_args_list:
         assert call.kwargs['reply_markup'] is None
         assert 'отмена' in call.args[0].lower() or 'отменена' in call.args[0].lower()
@@ -191,7 +193,7 @@ async def test_crm_correction_and_operation_reversal_update_same_request(finance
             'idempotency_key':'crm-cancel','effective_at':INSTANT.isoformat(),'reason':'Отмена'})
         assert result.status_code==200,result.text
     await delivery.deliver_exchange_request(1)
-    assert telegram.send_message.await_count==2
+    assert telegram.send_message.await_count==4
     assert all(value==0 for value in (await wallets(finance)).values())
     assert await balance(finance,'THB_CASH')==(0,0)
 
@@ -245,7 +247,7 @@ async def test_reply_cancel_and_old_outbox_events_do_not_restore_card(finance):
     # Replay the original event after removing its transport acknowledgements.
     await finance['pool'].execute('DELETE FROM telegram_deliveries WHERE event_key=$1',initial.key)
     await delivery.deliver(initial)
-    assert telegram.send_message.await_count==2
+    assert telegram.send_message.await_count==4
     assert telegram.edit_message_text.await_count==2
     for call in telegram.edit_message_text.call_args_list:
         assert call.kwargs['reply_markup'] is None
@@ -257,9 +259,9 @@ async def test_legacy_delivered_card_is_adopted_without_new_message(finance):
     await finance['pool'].execute('DELETE FROM telegram_message_links')
     await edit(commands)
     await delivery.deliver_exchange_request(1)
-    assert telegram.send_message.await_count==2
+    assert telegram.send_message.await_count==4
     assert telegram.edit_message_text.await_count==2
-    assert await finance['pool'].fetchval("SELECT count(*) FROM telegram_message_links WHERE deal_id=1")==2
+    assert await finance['pool'].fetchval("SELECT count(*) FROM telegram_message_links WHERE deal_id=1 AND purpose IN ('exchange_client','exchange_request')")==2
 
 
 async def test_existing_handler_edits_bot_reply_and_ignores_forward(finance,monkeypatch):
@@ -310,3 +312,93 @@ async def test_successful_cash_exchange_correction_keeps_each_inventory_snapshot
     assert (await balance(finance,'USDT'))[0]==800
     assert (await balance(finance,'THB_CASH'))[0]==7000
     assert (await finance['app'].trading_queries.detail(result['deal_id']))['effective_status']=='posted'
+
+
+async def test_act_notices_follow_effective_exchange_version_without_duplicates(finance):
+    import asyncio
+
+    commands, telegram, delivery, event = await setup(finance)
+    def notices():
+        return [call for call in telegram.send_message.call_args_list if call.args[1].startswith('USDT ACT:')]
+    assert len(notices()) == 1 and notices()[0].args[0] == -999
+    assert '100.000000' in notices()[0].args[1]
+    await asyncio.gather(delivery.deliver(event),delivery.deliver_exchange_request(1))
+    assert len(notices()) == 1
+    await edit(commands)
+    await asyncio.gather(delivery.deliver_exchange_request(1),delivery.deliver_exchange_request(1))
+    assert len(notices()) == 2 and '120.000000' in notices()[-1].args[1]
+    await commands.cancel_exchange_reply(telegram_user_id=12345,chat_id=-123,reply_message_id=900)
+    await delivery.deliver_exchange_request(1)
+    assert len(notices()) == 3 and '0.000000' in notices()[-1].args[1]
+    await delivery.deliver(event)
+    await delivery.deliver_exchange_request(1)
+    assert len(notices()) == 3
+    assert await finance['pool'].fetchval("SELECT count(*) FROM telegram_message_links WHERE purpose='act_balance'") == 3
+
+
+async def test_act_notice_failure_retries_after_cards_without_duplicates(finance):
+    from aiogram.exceptions import TelegramNetworkError
+    from aiogram.methods import SendMessage
+
+    from services.finance.outbox import DeliveryError
+
+    commands,telegram,delivery,_=await setup(finance)
+    await edit(commands)
+    original=telegram.send_message.side_effect
+    fail=True
+    async def send(chat_id,text,**kwargs):
+        nonlocal fail
+        if text.startswith('USDT ACT:') and fail:
+            fail=False
+            raise TelegramNetworkError(method=SendMessage(chat_id=chat_id,text=text),message='network')
+        return await original(chat_id,text,**kwargs)
+    telegram.send_message.side_effect=send
+    event=await OutboxDeliveryRepository(finance['pool']).claim()
+    # Claim may still return the original already-rendered event: current state remains authoritative.
+    with pytest.raises(DeliveryError):
+        await delivery.deliver(event)
+    edits=telegram.edit_message_text.await_count
+    await delivery.deliver(event)
+    await delivery.deliver(event)
+    assert telegram.edit_message_text.await_count==edits
+    assert await finance['pool'].fetchval("SELECT count(*) FROM telegram_message_links WHERE purpose='act_balance'")==2
+
+
+async def test_act_notification_uses_admin_fallback_without_creating_clients(finance):
+    from app.container import ApplicationContainer
+    commands,telegram,_,_=await setup(finance,operations_chat=None)
+    app=ApplicationContainer.build(finance['pool'],config=replace(finance['config'],admin_chat_id=-777))
+    before=await finance['pool'].fetchval('SELECT count(*) FROM clients')
+    await ThaiTelegramDelivery(app,telegram).deliver_exchange_request(1)
+    notices=[call for call in telegram.send_message.call_args_list if call.args[1].startswith('USDT ACT:')]
+    assert len(notices)==1 and notices[0].args[0]==-777
+    assert await finance['pool'].fetchval('SELECT count(*) FROM clients')==before
+
+
+async def test_cash_exchange_does_not_enter_act_or_send_act_notice(finance):
+    from decimal import Decimal
+
+    from tests.thai.test_trading import common, trade
+
+    await fund(finance,instrument='USDT',quantity=Decimal(1000))
+    deal=await trade(finance)
+    await finance['app'].trading.post(**common(finance,'cash-exchange'),deal_id=deal)
+    telegram=telegram_mock()
+    await ThaiTelegramDelivery(finance['app'],telegram,-999).deliver_exchange_request(deal)
+    assert not any(call.args[1].startswith('USDT ACT:') for call in telegram.send_message.call_args_list)
+    assert await finance['app'].act_counter.get_current_amount(request_chat_id=-999)==0
+
+
+async def test_act_notice_reuses_connection_with_single_connection_pool(finance):
+    import asyncio
+
+    import asyncpg
+
+    from app.container import ApplicationContainer
+
+    _,telegram,_,_=await setup(finance,operations_chat=None)
+    async with asyncpg.create_pool(finance['config'].database_url,min_size=1,max_size=1) as pool:
+        app=ApplicationContainer.build(pool)
+        await asyncio.wait_for(ThaiTelegramDelivery(app,telegram,-999).deliver_act_balance(1),timeout=2)
+    notices=[call for call in telegram.send_message.call_args_list if call.args[1].startswith('USDT ACT:')]
+    assert len(notices)==1 and '100.000000' in notices[0].args[1]

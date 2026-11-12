@@ -40,9 +40,11 @@ class ActCounterService:
         *,
         request_chat_id: int,
         chat_name: str | None = None,
+        account: ActAccountPort | None = None,
     ) -> Decimal:
-        if self._account is not None:
-            return await self._account.service_amount(request_chat_id)
+        reader = account if account is not None else self._account
+        if reader is not None:
+            return await reader.service_amount(request_chat_id)
         client_id = await self._ensure_request_chat_client(
             request_chat_id=request_chat_id,
             chat_name=chat_name,

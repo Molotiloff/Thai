@@ -9,6 +9,7 @@ from app.setup_handlers import create_router
 from app.thai_russian_commands import HELP, INSTRUMENTS, amount, instrument, month
 from app.thai_telegram import ThaiTelegramCommands
 from domain.finance.models import IdempotencyConflict, InvalidPosting
+from tests.thai.telegram_stub import telegram_mock
 from tests.thai.test_posting import INSTANT, balance, fund
 from tests.thai.test_profit import configure
 
@@ -86,7 +87,15 @@ async def test_russian_wallet_exchange_cash_and_retry(finance):
         await post_cash(send, finance, "/депбат 3700", message_id=101)
 
 
+async def historical_profit_terms(finance):
+    # Scenarios use October 2026; bootstrap terms otherwise start on the real install date.
+    await finance['app'].profit.set_terms(key='historical-profit-terms',actor_id=finance['actor'],
+        business_date=INSTANT.date(),effective_at=INSTANT,valid_from=INSTANT.date().replace(day=1),
+        skyex_percent='50',pe_percent='50',reason='Explicit terms for historical test period')
+
+
 async def test_old_dollars_and_corrections_do_not_change_cash_or_profit(finance):
+    await historical_profit_terms(finance)
     _, send = bot(finance)
     await send("/регистрация Доллары")
     await send("/пд 100 от 100")
@@ -142,6 +151,7 @@ async def test_future_market_rate_is_not_needed_to_settle_exchange_debt(finance)
 
 
 async def test_russian_bestchange_and_report(finance):
+    await historical_profit_terms(finance)
     _, send = bot(finance)
     await configure(finance)
     await fund(finance, instrument="USDT", quantity=Decimal(100))
@@ -394,11 +404,11 @@ async def test_exchange_outbox_uses_old_cards_without_duplicate_or_technical_not
     card = await send('/пт 1000 обезнал 1000*33 <комментарий>', message_id=100,
         chat_name='Клиент <А>', actor_name='Автор <Б>')
     event = await OutboxDeliveryRepository(finance['pool']).claim()
-    telegram = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=900)))
+    telegram = telegram_mock()
     delivery = ThaiTelegramDelivery(finance['app'], telegram, operations_chat_id=-999)
     await asyncio.gather(delivery.deliver(event), delivery.deliver(event))
-    assert telegram.send_message.await_count == 2
-    calls = {call.args[0]: call for call in telegram.send_message.call_args_list}
+    assert telegram.send_message.await_count == 3
+    calls = {call.args[0]: call for call in telegram.send_message.call_args_list if not call.args[1].startswith('USDT ACT:')}
     assert calls[-123].args[1] == card
     request_card = calls[-999].args[1]
     assert '<b>Номер заявки</b>: <code>1</code>' in request_card
@@ -431,10 +441,12 @@ async def test_old_exchange_without_presentation_has_client_and_operations_cards
     assert await finance['pool'].fetchval('SELECT count(*) FROM financial_operations') == 1
     assert 'presentation' not in (await finance['app'].trading_queries.detail(created['deal_id']))['attributes']
     event = await OutboxDeliveryRepository(finance['pool']).claim()
-    telegram = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=900)))
+    telegram = telegram_mock()
     await ThaiTelegramDelivery(finance['app'], telegram, -999).deliver(event)
-    assert telegram.send_message.await_count == 2
+    assert telegram.send_message.await_count == 3
     for call in telegram.send_message.call_args_list:
+        if call.args[1].startswith('USDT ACT:'):
+            continue
         assert '<b>Курс</b>: <code>33</code>' in call.args[1]
         assert '<b>Отдаём</b>: <code>33’000.00 бат</code>' in call.args[1]
     request = telegram.send_message.call_args_list[0].args[1]
@@ -462,12 +474,12 @@ async def test_exchange_delivery_retries_failed_chat_without_repeating_client_ca
             failed = True
             raise TelegramNetworkError(method=SendMessage(chat_id=chat_id, text=text), message='network')
         delivered.append(chat_id)
-        return SimpleNamespace(message_id=900)
+        return SimpleNamespace(message_id=900+delivered.count(chat_id)-1)
 
     delivery = ThaiTelegramDelivery(finance['app'], SimpleNamespace(send_message=send_message), 999)
     with pytest.raises(DeliveryError):
         await delivery.deliver(event)
     assert delivered == [-123]
     await delivery.deliver(event)
-    assert delivered == [-123, 999]
+    assert delivered == [-123, 999, 999]
     assert await finance['pool'].fetchval('SELECT count(*) FROM telegram_deliveries') == 2

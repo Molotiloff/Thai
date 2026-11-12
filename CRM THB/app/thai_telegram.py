@@ -215,8 +215,39 @@ class ThaiTelegramDelivery:
                     if event:
                         await db.execute('INSERT INTO telegram_deliveries VALUES ($1,$2,$3,clock_timestamp()) ON CONFLICT DO NOTHING',
                             event.key,chat_id,message_id)
+            await self.deliver_act_balance(root_id)
         except TelegramAPIError:
             raise DeliveryError('exchange_card_delivery_failed') from None
+
+    async def deliver_act_balance(self, deal_id):
+        """One current ACT notice per effective exchange version, shared by bot and CRM."""
+        from db_asyncpg.repositories.act_counter import ActCounterRepo
+        from services.act_counter.text_builder import ActCounterTextBuilder
+
+        config = self._app.config
+        chat_id = self._operations_chat_id or (config.request_chat_id or config.admin_chat_id if config else None)
+        if chat_id is None:
+            return
+        async with self._app.pool.acquire() as db, db.transaction():
+            await db.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", f"act-message:{deal_id}:{chat_id}")
+            context = await self._app.trading_queries.exchange_context(deal_id, connection=db)
+            active = context['active']
+            if active['attributes']['mode'] != 'wallet':
+                return
+            operation_id = active['reversal_operation_id'] or active['operation_id']
+            if await db.fetchval("""
+                SELECT EXISTS(SELECT 1 FROM telegram_message_links
+                    WHERE operation_id=$1 AND chat_id=$2 AND purpose='act_balance')
+            """, operation_id, chat_id):
+                return
+            amount = await self._app.act_counter.get_current_amount(request_chat_id=chat_id,
+                account=ActCounterRepo(self._app.pool, connection=db))
+            sent = await self._bot.send_message(chat_id,
+                ActCounterTextBuilder(precision=6).build_current_amount_text(amount), parse_mode='HTML')
+            await db.execute("""
+                INSERT INTO telegram_message_links(deal_id,operation_id,chat_id,message_id,purpose)
+                    VALUES ($1,$2,$3,$4,'act_balance')
+            """, context['root']['id'], operation_id, chat_id, sent.message_id)
 
     async def _update_card(self, connection, *, deal_id=None, operation_id=None, chat_id, text, markup, purpose, link, parse_mode="HTML"):
         from aiogram.exceptions import TelegramBadRequest
