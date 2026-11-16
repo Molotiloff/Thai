@@ -39,11 +39,11 @@ async def withdraw(finance, investor, *, key='withdrawal', instrument='USDT', qu
         instrument=instrument, quantity=quantity, business_date=day, effective_at=NOW)
 
 
-async def accrue(finance, investor, *, key='accrual', period=date(2026, 10, 1), approved=None):
+async def accrue(finance, investor, *, key='accrual', period=date(2026, 10, 1), approved=None, effective_at=None):
     from calendar import monthrange
     return await finance['app'].capital.accrue(key=key, actor_id=finance['actor'], agreement_id=investor,
         period=period, business_date=date(period.year, period.month, monthrange(period.year, period.month)[1]),
-        effective_at=datetime(2026, 12, 2, tzinfo=UTC), approved_usdt=approved, reason='Manager approved')
+        effective_at=effective_at or datetime(2026, 12, 2, tzinfo=UTC), approved_usdt=approved, reason='Manager approved')
 
 
 async def pay(finance, investor, *, key='payment', quantity='150', instrument='USDT', rate=None):
@@ -153,15 +153,27 @@ async def test_manager_decision_required_when_capital_changes_and_zero_is_valid(
 async def test_rate_change_preserves_old_accrual_and_payment_can_cover_months(finance, investor):
     await contribute(finance, investor)
     await accrue(finance, investor)
+    # The database deliberately only allows ending a used term in the future.
+    # Use its own business clock so this scenario does not expire in November.
+    new_period = await finance['pool'].fetchval("""
+        SELECT ((date_trunc('month',now() AT TIME ZONE 'Asia/Bangkok')
+            + interval '1 month')::date)
+    """)
+    new_period = max(new_period, date(2026, 11, 1))
     await finance['app'].capital.change_term(key='new-rate', actor_id=finance['actor'], agreement_id=investor,
-        valid_from=date(2026, 11, 1), effective_at=NOW, monthly_interest_percent=Decimal(3), reason='Agreement')
-    await accrue(finance, investor, key='november', period=date(2026, 11, 1), approved='300')
-    await pay(finance, investor, quantity='250')
+        valid_from=new_period, effective_at=NOW, monthly_interest_percent=Decimal(3), reason='Agreement')
+    payout_day = date(new_period.year + (new_period.month == 12), new_period.month % 12 + 1, 2)
+    payout_at = datetime(payout_day.year, payout_day.month, payout_day.day, 12, tzinfo=UTC)
+    await accrue(finance, investor, key='next-period', period=new_period, approved='300', effective_at=payout_at)
+    await finance['app'].capital.pay_interest(key='payment', actor_id=finance['actor'], agreement_id=investor,
+        instrument='USDT', quantity='250', business_date=payout_day,
+        effective_at=payout_at,
+        reason='Manager payout decision')
     detail = await finance['app'].capital_queries.detail(investor)
     assert [(a['monthly_interest_percent'], a['paid_usdt'], a['remaining_usdt']) for a in detail['accruals']] == [(2, 200, 0), (3, 50, 250)]
     with pytest.raises(InvalidPosting):
         await finance['app'].capital.change_term(key='retro-rate', actor_id=finance['actor'], agreement_id=investor,
-            valid_from=date(2026, 11, 15), effective_at=NOW, monthly_interest_percent=Decimal(4), reason='Invalid')
+            valid_from=new_period.replace(day=15), effective_at=NOW, monthly_interest_percent=Decimal(4), reason='Invalid')
 
 
 async def test_capital_api_history_decimal_and_idempotency(finance, investor):

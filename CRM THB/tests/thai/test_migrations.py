@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -284,6 +285,26 @@ def test_readable_schema_matches_frozen_sql_files():
     assert (root / "schema.sql").read_text() == expected
 
 
+def normalize_schema_dump(dump: str) -> str:
+    """Remove dump-specific tokens/version stamps, retaining structural DDL."""
+    return "\n".join(
+        line for line in dump.splitlines()
+        if not line.startswith(("\\restrict ", "\\unrestrict "))
+        and not re.fullmatch(r'ALTER TABLE ONLY .+ ALTER COLUMN .+ SET \(pg_attver=\d+\);', line)
+    )
+
+
+def test_schema_dump_normalization_keeps_structural_column_changes():
+    first = 'CREATE TABLE public.t (amount numeric);\nALTER TABLE ONLY public.t ALTER COLUMN amount SET (pg_attver=123);\n\\restrict abc\n'
+    second = first.replace('pg_attver=123', 'pg_attver=456').replace('restrict abc', 'restrict xyz')
+    assert normalize_schema_dump(first) == normalize_schema_dump(second)
+    assert normalize_schema_dump(first) != normalize_schema_dump(first.replace('amount numeric', 'amount integer'))
+    structural = 'ALTER TABLE ONLY public.t ALTER COLUMN amount SET NOT NULL;'
+    assert normalize_schema_dump(structural) == structural
+    storage = 'ALTER TABLE ONLY public.t ALTER COLUMN amount SET (n_distinct=123);'
+    assert normalize_schema_dump(storage) == storage
+
+
 def dump_public_schema(url: str) -> str:
     """Compare PostgreSQL's resolved DDL, excluding Alembic's installation marker."""
     parsed = urlsplit(url)
@@ -295,11 +316,7 @@ def dump_public_schema(url: str) -> str:
         env={**os.environ, "PGPASSWORD": unquote(parsed.password or "")},
         check=True, capture_output=True, text=True,
     )
-    # Recent pg_dump versions generate a random psql restriction token per dump.
-    return "\n".join(
-        line for line in result.stdout.splitlines()
-        if not line.startswith(("\\restrict ", "\\unrestrict "))
-    )
+    return normalize_schema_dump(result.stdout)
 
 
 async def test_final_sql_snapshot_matches_migrated_postgres_schema():

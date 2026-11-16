@@ -45,6 +45,14 @@ async def finance_database():
         await AlembicMigrator(url, schema="thai").upgrade_to_head()
         pool = await asyncpg.create_pool(url, min_size=1, max_size=8)
         try:
+            # Financial scenarios below describe an existing business in 2026.
+            # Production bootstrap starts on installation day; pin only its
+            # unused profit-share terms in disposable fixtures, without creating postings
+            # or changing the production seed/migration behaviour.
+            await pool.execute("""
+                UPDATE profit_share_terms SET valid_from=DATE '2026-01-01'
+                    WHERE operation_id IS NULL;
+            """)
             actor = await pool.fetchval("""
                 INSERT INTO users(display_name,telegram_user_id) VALUES ('Manager',12345) RETURNING id
             """)

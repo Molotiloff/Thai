@@ -44,6 +44,12 @@ async def test_bot_crm_correction_then_bot_cancel_after_container_restart(financ
     commands=ThaiTelegramCommands(finance['app'],config)
     bot=Bot('123456:TEST')
     transport=telegram()
+    def cards():
+        return [call for call in transport.send_message.call_args_list
+                if not call.args[1].startswith('USDT ACT:')]
+    def act_notices():
+        return [call for call in transport.send_message.call_args_list
+                if call.args[1].startswith('USDT ACT:')]
     monkeypatch.setattr(bot,'send_message',transport.send_message)
     monkeypatch.setattr(bot,'edit_message_text',transport.edit_message_text)
     monkeypatch.setattr(Message,'answer',AsyncMock())
@@ -57,7 +63,7 @@ async def test_bot_crm_correction_then_bot_cancel_after_container_restart(financ
         message=message.model_copy(update={'message_id':2,'text':'/пт 100 обат 3300'}).as_(bot)
         await router.message.handlers[0].callback(message)
         assert (await wallets(finance))['USDT']==-100
-        assert transport.send_message.await_count==2
+        assert len(cards()) == 2 and len(act_notices()) == 1
         # Recreate the application as after a worker/backend restart.
         restored=ApplicationContainer.build(finance['pool'])
         app=create_thai_finance_api(container=restored,jwt_secret='x'*32)
@@ -86,7 +92,7 @@ async def test_bot_crm_correction_then_bot_cancel_after_container_restart(financ
         dispatcher=restored.outbox_dispatcher(delivery)
         while await dispatcher.run_once():
             pass
-        assert transport.send_message.await_count==2 # Same original cards, no new messages.
+        assert len(cards()) == 2 and len(act_notices()) == 2
         assert '4’200.00 безнал' in transport.edit_message_text.call_args.args[0]
         router=create_router(ThaiTelegramCommands(restored,config))
         cancellation=message.model_copy(update={'message_id':3,'text':'/отмена 1 отмена клиента'}).as_(bot)
@@ -96,7 +102,7 @@ async def test_bot_crm_correction_then_bot_cancel_after_container_restart(financ
         assert all(value==0 for value in (await wallets(finance)).values())
         assert all(row['balance']==0 for row in await restored.queries.cash_balances())
         assert await finance['pool'].fetchval('SELECT count(*) FROM financial_operations')==4
-        assert transport.send_message.await_count==2
+        assert len(cards()) == 2 and len(act_notices()) == 3
         assert transport.edit_message_text.call_args.kwargs['reply_markup'] is None
     finally:
         await bot.session.close()
