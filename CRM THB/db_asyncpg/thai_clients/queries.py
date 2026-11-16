@@ -2,7 +2,7 @@ import json
 
 import asyncpg
 
-from db_asyncpg.thai_finance.queries import operation_dict
+from db_asyncpg.thai_finance.queries import operation_dict, replayed_operation_id
 from db_asyncpg.thai_trading.workspace import ENTRIES
 from domain.finance.models import InvalidPosting
 
@@ -287,11 +287,12 @@ class ClientQueries:
 
 
     async def wallet_operation_by_message(self, chat_id, message_id):
-        return await self._pool.fetchval("""
+        operation_id = await self._pool.fetchval("""
             SELECT l.operation_id FROM telegram_message_links l JOIN financial_operations o ON o.id=l.operation_id
             WHERE l.chat_id=$1 AND l.message_id=$2 AND l.purpose='wallet_adjustment'
                 AND o.kind='manual_journal' AND o.command_details->>'purpose'='wallet_adjustment'
         """,chat_id,message_id)
+        return await replayed_operation_id(self._pool, operation_id)
 
     async def zero_preview(self, client_id):
         from db_asyncpg.thai_clients.repository import ClientsRepository

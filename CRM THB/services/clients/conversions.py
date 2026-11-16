@@ -84,6 +84,7 @@ class WalletConversionService:
                         "quantity": quantity,
                         "fee": fee,
                         "rate": quote.quoted_rate if quote else None,
+                        "rate_source": "manual" if quoted_rate is not None else "internal",
                         "physical": physical,
                     },
                     profit_revision_id,

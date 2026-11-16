@@ -44,7 +44,7 @@ export async function DealDetail({params}:{params:Promise<{id:string}>}){
  const state=String(data.effective_status);const specs:FormSpec[]=[{title:'Отметить готовой',path:`/deals/${id}/ready`,permission:'deal.post',financial:false,fields:[]},{title:'Провести сделку',path:`/deals/${id}/post`,permission:'deal.post',fields:[{name:'business_date',label:'Дата учёта',kind:'date',required:false}]},{title:'Отменить сделку',path:data.kind==='best_change'?`/profit/operations/${data.operation_id}/reversal`:`/deals/${id}/cancel`,permission:'finance.reverse',fields:[{name:'reason',label:'Причина'},{name:'business_date',label:'Дата учёта',kind:'date',required:false}]}].filter((_,index)=>index===0?state==='draft':index===1?state==='ready':state!=='cancelled') as FormSpec[];
  if(data.kind==='fx_trade'&&state==='posted')specs.unshift({
   title:'Исправить обмен',path:`/deals/${id}/correction`,permission:'finance.reverse',
-  note:'Сторно и исправленная сделка проводятся вместе. При ошибке исходный обмен сохраняется.',
+  note:'Исправление сохраняет исходную дату учёта и пересчитывает себестоимость и прибыль последующих обычных движений. Закрытый период требует ревизии. При ошибке вся история сохраняется.',
   fields:[
    {name:'expected_deal_id',label:'Текущая версия',kind:'id',value:id,readOnly:true},
    {name:'replacement.mode',label:'Способ учёта',value:String(attributes.mode),readOnly:true},
@@ -54,7 +54,6 @@ export async function DealDetail({params}:{params:Promise<{id:string}>}){
    {name:'replacement.pay.quantity',label:'Выдаём: сумма',kind:'money',value:String(outgoing?.quantity)},
    {name:'replacement.comment',label:'Комментарий',required:false,value:String(attributes.comment??'')},
    {name:'reason',label:'Причина исправления'},
-   {name:'business_date',label:'Дата учёта',kind:'date',required:false},
   ]
  });
  return <Page back={{href:"/deals",label:"Сделки"}} title={`Заявка #${data.request_id??id}`} subtitle={`Статус: ${labels[state]??state} · версия #${id}`}><Panel title="Условия"><Table data={[{...incoming,direction:'Получаем'},{...outgoing,direction:'Выдаём'}]} columns={[{key:'direction',title:'Направление'},{key:'instrument',title:'Счёт'},{key:'quantity',title:'Сумма',amount:true},{key:'quoted_rate',title:'Курс',amount:true}]}/></Panel><Panel title="Проведение и отмена"><OperationForms session={user} specs={specs}/></Panel><Panel title="Документы"><Table data={[data]} columns={[{key:'client_id',title:'Клиент',href:'/clients/{client_id}'},{key:'operation_id',title:'Операция',href:'/operations/{operation_id}'},{key:'replacement_deal_id',title:'Исправленная заявка',href:'/deals/{replacement_deal_id}'}]}/></Panel></Page>

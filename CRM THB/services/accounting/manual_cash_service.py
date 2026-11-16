@@ -10,6 +10,7 @@ from domain.finance.models import (
     canonical_json,
     decimal,
     exact,
+    revision_details,
 )
 from services.finance.ports import CashAdjustmentReadPort, FinanceUowFactory
 from services.finance.posting import OperationPostingService, ReversalService
@@ -30,16 +31,16 @@ class ManualCashService:
         self._posting,self._queries,self._reversals=posting,queries,reversals
         self._commands=MetadataCommandService(ledger_uow_factory) if ledger_uow_factory else None
 
-    async def adjust(self, *, key, actor_id, instrument, quantity, business_date, effective_at, chat_id, comment=''):
+    async def adjust(self, *, key, actor_id, instrument, quantity, business_date, effective_at, chat_id, comment='', profit_revision_id=None):
         accounts=await self._queries.cash_adjustment_accounts(instrument)
         quantity=exact(decimal(quantity),accounts['precision'])
         if not quantity:
             raise InvalidPosting('Изменение кассы должно быть ненулевым')
         quote=await self._queries.internal_quote(instrument,effective_at,key)
         command=OperationCommand(key,'manual_journal',actor_id,business_date,effective_at,
-            tuple(sorted((accounts['cash'],accounts['offset']))),canonical_json({
+            tuple(sorted((accounts['cash'],accounts['offset']))),canonical_json(revision_details({
                 'purpose':'cash_adjustment','instrument':instrument,'quantity':quantity,
-                'quoted_rate':quote.quoted_rate if quote else None,'chat_id':chat_id,'comment':comment}))
+                'quoted_rate':quote.quoted_rate if quote else None,'chat_id':chat_id,'comment':comment}, profit_revision_id)))
         async def prepare(work):
             await work.journal.guard(command,'cash.execute')
         def build(state):

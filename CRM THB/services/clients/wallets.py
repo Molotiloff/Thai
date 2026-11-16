@@ -12,6 +12,7 @@ from domain.finance.models import (
     canonical_json,
     decimal,
     exact,
+    revision_details,
     rounded,
 )
 from services.clients.ports import ClientUnitOfWork, WalletReadPort
@@ -31,11 +32,12 @@ class WalletCashService:
         return await self._cash_change(deposit=False, **kwargs)
 
     async def _cash_change(self, *, deposit, key, actor_id, client_id, instrument,
-                           quantity, business_date, effective_at, quoted_rate=None, comment='', request_id=None, work=None, payment_watch_id=None, document=None):
+                           quantity, business_date, effective_at, quoted_rate=None, comment='', request_id=None, work=None, payment_watch_id=None, document=None, profit_revision_id=None):
         accounts = await self._queries.wallet_accounts(client_id, instrument)
         quantity = exact(decimal(quantity), accounts['precision'])
         if quantity <= 0:
             raise InvalidPosting('Сумма должна быть положительной')
+        rate_source = 'manual' if quoted_rate is not None else 'internal'
         quote = None
         if accounts['currency'] == 'USDT' or quoted_rate is not None:
             quote = FxQuote(accounts['currency'], decimal(quoted_rate if quoted_rate is not None else 1),
@@ -43,14 +45,14 @@ class WalletCashService:
         if quote is None:
             quote = await self._queries.internal_quote(instrument,effective_at,key)
         details = {'client': client_id, 'instrument': instrument, 'quantity': quantity,
-                   'quoted_rate': quote.quoted_rate if quote else None, 'comment': comment}
+                   'quoted_rate': quote.quoted_rate if quote else None, 'rate_source': rate_source, 'comment': comment}
         if request_id is not None:
             details['request_id'] = request_id
         if payment_watch_id is not None:
             details['payment_watch_id'] = payment_watch_id
         command = OperationCommand(key, 'wallet_deposit' if deposit else 'wallet_withdrawal', actor_id,
             business_date, effective_at, tuple(sorted(accounts[name] for name in ('cash','wallet','fx_income','fx_loss'))),
-            canonical_json(details))
+            canonical_json(revision_details(details, profit_revision_id)))
         async def prepare(work):
             await cast(ClientUnitOfWork, work).clients.lock_client(client_id)
             if request_id is not None:

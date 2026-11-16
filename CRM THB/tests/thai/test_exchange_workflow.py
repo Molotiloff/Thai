@@ -14,7 +14,6 @@ from domain.finance.models import (
     InsufficientCash,
     InvalidPosting,
     PeriodClosed,
-    ReversalBlocked,
 )
 from tests.thai.telegram_stub import telegram_mock
 from tests.thai.test_posting import INSTANT, balance, fund
@@ -164,14 +163,33 @@ async def test_cancel_rejects_stale_forged_and_unauthorized_buttons(finance):
         await edit(commands,mid=4)
 
 
-async def test_subsequent_wallet_movement_blocks_historical_edit(finance):
+async def test_subsequent_wallet_movement_is_replayed_on_historical_edit(finance):
     commands,_,_,_ = await setup(finance)
     await commands.execute(telegram_user_id=12345,chat_id=-123,message_id=7,text='/USDT 1',effective_at=INSTANT)
-    before = await wallets(finance)
-    with pytest.raises(ReversalBlocked,match='последующие'):
-        await edit(commands)
-    assert await wallets(finance)==before
-    assert await finance['pool'].fetchval('SELECT count(*) FROM deal_reversals')==0
+    result = await edit(commands)
+    assert len(result['recalculated_operations']) == 1
+    values = await wallets(finance)
+    assert values['USDT'] == -119 and values['THB_CASH'] == 0 and values['THB_BANK'] == 4200
+    assert await finance['pool'].fetchval('SELECT count(*) FROM deal_reversals') == 1
+    assert await edit(commands) == result
+
+
+async def test_historical_replay_refreshes_cards_without_duplicate_act_notice(finance):
+    commands, telegram, delivery, _ = await setup(finance)
+    await commands.execute(telegram_user_id=12345, chat_id=-123, message_id=8,
+        text='/пт 50 обат 1600', effective_at=INSTANT)
+    tail_event = await OutboxDeliveryRepository(finance['pool']).claim()
+    await delivery.deliver(tail_event)
+    sent = telegram.send_message.await_count
+    await edit(commands)
+    row = await finance['pool'].fetchrow("SELECT * FROM telegram_outbox WHERE event_type='exchange.revalued'")
+    event = SimpleNamespace(key=row['event_key'], event_type=row['event_type'], payload_json=row['payload'])
+    await delivery.deliver(event)
+    await delivery.deliver(tail_event)
+    assert telegram.send_message.await_count == sent
+    active = (await finance['app'].trading_queries.exchange_context(2))['active']['id']
+    assert any(call.kwargs['reply_markup'].inline_keyboard[0][0].callback_data == f'req_cancel:2:{active}'
+        for call in telegram.edit_message_text.call_args_list)
 
 
 async def test_crm_correction_and_operation_reversal_update_same_request(finance):

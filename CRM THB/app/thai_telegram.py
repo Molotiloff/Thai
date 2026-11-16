@@ -169,7 +169,7 @@ class ThaiTelegramDelivery:
         self._cash_chat_ids=frozenset(cash_chat_ids if cash_chat_ids is not None else
             (container.config.cash_chat_ids if container.config is not None else ()))
 
-    async def deliver_exchange_request(self, deal_id, *, event=None):
+    async def deliver_exchange_request(self, deal_id, *, event=None, notify_act=True):
 
         from telegram_adapters.exchange_keyboards import AiogramExchangeKeyboardPresenter
         context = await self._app.trading_queries.exchange_context(deal_id)
@@ -215,7 +215,8 @@ class ThaiTelegramDelivery:
                     if event:
                         await db.execute('INSERT INTO telegram_deliveries VALUES ($1,$2,$3,clock_timestamp()) ON CONFLICT DO NOTHING',
                             event.key,chat_id,message_id)
-            await self.deliver_act_balance(root_id)
+            if notify_act:
+                await self.deliver_act_balance(root_id)
         except TelegramAPIError:
             raise DeliveryError('exchange_card_delivery_failed') from None
 
@@ -235,6 +236,16 @@ class ThaiTelegramDelivery:
             if active['attributes']['mode'] != 'wallet':
                 return
             operation_id = active['reversal_operation_id'] or active['operation_id']
+            if active['reversal_operation_id'] is None:
+                # Accounting replay is not another USDT movement. Reuse the
+                # original notice identity even if an old outbox event retries.
+                operation_id = await db.fetchval("""
+                    WITH RECURSIVE origin AS (
+                        SELECT id,command_details,0 AS depth FROM financial_operations WHERE id=$1
+                        UNION ALL SELECT o.id,o.command_details,p.depth+1 FROM origin p
+                        JOIN financial_operations o ON o.id=(p.command_details->>'replayed_from')::bigint
+                    ) SELECT id FROM origin ORDER BY depth DESC LIMIT 1
+                """, operation_id)
             if await db.fetchval("""
                 SELECT EXISTS(SELECT 1 FROM telegram_message_links
                     WHERE operation_id=$1 AND chat_id=$2 AND purpose='act_balance')
@@ -270,6 +281,9 @@ class ThaiTelegramDelivery:
 
     async def deliver(self, event):
         payload = json.loads(event.payload_json)
+        if event.event_type == 'exchange.revalued':
+            await self.deliver_exchange_request(payload['deal_id'], event=event, notify_act=False)
+            return
         if event.event_type=='payment.watch_changed':
             await self.deliver_payment_watch(payload['watch_id'])
             return

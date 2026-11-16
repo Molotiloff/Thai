@@ -15,6 +15,19 @@ def operation_dict(row) -> dict:
     return result
 
 
+async def replayed_operation_id(database, operation_id):
+    """Resolve a persisted message's operation through technical revaluations."""
+    if operation_id is None:
+        return None
+    return await database.fetchval("""
+        WITH RECURSIVE chain AS (
+            SELECT id,0 AS depth FROM financial_operations WHERE id=$1
+            UNION ALL SELECT o.id,c.depth+1 FROM chain c JOIN financial_operations o
+                ON (o.command_details->>'replayed_from')::bigint=c.id AND o.status='posted'
+        ) SELECT id FROM chain ORDER BY depth DESC,id DESC LIMIT 1
+    """, operation_id)
+
+
 class FinanceQueries:
     def __init__(self, pool: asyncpg.Pool):
         self._pool = pool
@@ -53,12 +66,13 @@ class FinanceQueries:
         return dict(row)
 
     async def cash_operation_by_message(self, chat_id, message_id):
-        return await self._pool.fetchval("""
+        operation_id = await self._pool.fetchval("""
             SELECT o.id FROM telegram_message_links l JOIN financial_operations o ON o.id=l.operation_id
             WHERE l.chat_id=$1 AND l.message_id=$2 AND l.purpose='cash_adjustment'
                 AND o.kind='manual_journal' AND o.command_details->>'purpose'='cash_adjustment'
                 AND (o.command_details->>'chat_id')::bigint=$1
         """,chat_id,message_id)
+        return await replayed_operation_id(self._pool, operation_id)
 
     async def cash_history(self, instrument=None, *, before_id=None, limit=16, since=None, until=None):
         if limit is not None and not 1<=limit<=100:

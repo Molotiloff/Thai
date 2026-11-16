@@ -1,3 +1,4 @@
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import date, datetime
@@ -16,6 +17,7 @@ from domain.finance.models import (
     Valuation,
     canonical_json,
     exact,
+    revision_details,
 )
 from services.finance.ports import (
     DocumentWriter,
@@ -58,7 +60,14 @@ class OperationPostingService:
         previous = await uow.journal.find_by_key(command.key)
         if previous is not None:
             if previous.fingerprint != command.fingerprint:
-                raise IdempotencyConflict("Ключ уже использован для другой команды")
+                # Older releases did not record quote provenance. A retry may
+                # add that metadata, but every original monetary parameter and
+                # the complete original fingerprint must still match exactly.
+                legacy_details = json.loads(command.details_json)
+                if ('rate_source' not in legacy_details
+                    or previous.fingerprint != replace(command, details_json=canonical_json({
+                        k: v for k, v in legacy_details.items() if k != 'rate_source'})).fingerprint):
+                    raise IdempotencyConflict("Ключ уже использован для другой команды")
             return previous
         if prepare is not None:
             await prepare(uow)
@@ -95,12 +104,12 @@ class CashTransferService:
 
     async def transfer(self, *, key: str, actor_id: int, business_date: date,
                        effective_at: datetime, source_id: int, target_id: int,
-                       quantity: Decimal) -> PostedOperation:
+                       quantity: Decimal, profit_revision_id=None) -> PostedOperation:
         if source_id == target_id or quantity <= 0:
             raise InvalidPosting("Нужны разные кассовые счета и положительная сумма")
         command = OperationCommand(key, "cash_transfer", actor_id, business_date, effective_at,
-            tuple(sorted((source_id, target_id))), canonical_json({"source": source_id,
-                "target": target_id, "quantity": quantity}))
+            tuple(sorted((source_id, target_id))), canonical_json(revision_details({"source": source_id,
+                "target": target_id, "quantity": quantity}, profit_revision_id)))
 
         def build(state: PostingState) -> PostingPlan:
             source, target = state.account(source_id), state.account(target_id)

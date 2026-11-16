@@ -389,7 +389,8 @@ class TradingService:
             permission="deal.post",
         )
 
-    async def post(self, *, key, actor_id, deal_id, business_date, effective_at, settlement=None, profit_revision_id=None, work=None):
+    async def post(self, *, key, actor_id, deal_id, business_date, effective_at, settlement=None, profit_revision_id=None, work=None,
+                   historical_order=None, replayed_from=None, dependency_operation_ids=()):
         if settlement is not None:
             if settlement["block_ts"].tzinfo is None:
                 raise InvalidPosting("Время подтверждённого перевода должно содержать часовой пояс")
@@ -421,6 +422,8 @@ class TradingService:
             ids,
             canonical_json(
                 revision_details({"deal_id": deal_id, "attributes": attributes, "settlement": settlement,
+                    **({'historical_order': historical_order} if historical_order is not None else {}),
+                    **({'replayed_from': replayed_from} if replayed_from is not None else {}),
                     **({'cash_request_id':deal_id} if deal['kind']=='cash_exchange' else {})}, profit_revision_id)
             ),
         )
@@ -546,6 +549,8 @@ class TradingService:
             )
 
         async def save(operation_id, uow, plan):
+            for source in dependency_operation_ids:
+                await uow.journal.add_dependency(source, operation_id)
             final = {**attributes, "contract": attributes, "result_usdt": prepared["result"]}
             for side in ("receive", "pay"):
                 q = prepared[side]
@@ -629,6 +634,25 @@ class TradingService:
             'effective_at':effective_at, 'reason':reason, 'profit_revision_id':profit_revision_id}
         async def action(work):
             uow = cast(TradingUnitOfWork, work)
+            from services.exchange.history import ExchangeHistoryReplay
+
+            # Same global valuation lock as ordinary postings: discover the full tail
+            # before changing any account, and prevent a concurrent new dependency.
+            await uow.journal.lock_posting_period(profit_revision_id=profit_revision_id)
+            await uow.trades.lock(root_id)
+            current = await uow.trades.exchange_current(root_id)
+            if (current['status'] != 'posted' or current['id'] != context['active']['id']
+                or (expected_deal_id is not None and current['id'] != expected_deal_id)):
+                raise InvalidPosting('Заявка изменена или отменена; обновите карточку')
+            accounts = await self._queries.accounts(context['root']['client_id'],
+                replacement['receive']['instrument'], replacement['pay']['instrument'], replacement['mode'])
+            field = 'wallet' if replacement['mode'] == 'wallet' else 'cash'
+            extra_accounts = tuple(accounts[side][field] for side in ('receive', 'pay'))
+            original_operation, tail = await uow.history.tail(current['operation_id'], extra_accounts)
+            ordering = original_operation['ordering']
+            replay = ExchangeHistoryReplay(self, uow, key, actor_id, reason, profit_revision_id)
+            replay.validate(tail)
+            await replay.rewind(tail)
             async def validate_current(locked):
                 # Reversal guards acquire period/key locks before the client and request locks.
                 await locked.trades.lock(root_id)
@@ -637,15 +661,19 @@ class TradingService:
                     or (expected_deal_id is not None and current['id']!=expected_deal_id)):
                     raise InvalidPosting('Заявка изменена или отменена; обновите карточку')
             reversed_operation = await self.reverse(key=key+':reversal', actor_id=actor_id,
-                deal_id=context['active']['id'], replacement=attributes, business_date=business_date,
-                effective_at=effective_at, reason=reason, profit_revision_id=profit_revision_id, work=uow,
+                deal_id=context['active']['id'], replacement=attributes, business_date=original_operation['business_date'],
+                effective_at=original_operation['effective_at'], reason=reason, profit_revision_id=profit_revision_id, work=uow,
                 before_reverse=validate_current)
             current = await uow.trades.exchange_current(root_id)
             await uow.trades.ready(current['id'])
             posted = await self.post(key=key+':replacement', actor_id=actor_id, deal_id=current['id'],
-                business_date=business_date, effective_at=effective_at, profit_revision_id=profit_revision_id, work=uow)
+                business_date=original_operation['business_date'], effective_at=original_operation['effective_at'],
+                profit_revision_id=profit_revision_id, work=uow,
+                historical_order=ordering)
+            recalculated = await replay.replay(tail, original_operation['id'], posted.id)
             return {'deal_id':current['id'], 'request_id':root_id, 'operation_id':posted.id,
-                'reversal_operation_id':reversed_operation.id}
+                'reversal_operation_id':reversed_operation.id,
+                **({'recalculated_operations': recalculated} if recalculated else {})}
         return await self._commands.execute(key=key, actor_id=actor_id, kind='trade_correct',
             payload=payload, action=action, permission='deal.post')
 

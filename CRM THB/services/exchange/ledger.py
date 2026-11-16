@@ -9,7 +9,8 @@ from typing import Protocol
 from db_asyncpg.ports.ledger import TransactionRepositoryPort
 from domain.finance.models import InvalidPosting
 from services.act_counter import AppliedExchangeMovement
-from services.clients.ports import ClientUnitOfWork
+from services.clients.ports import ClientUnitOfWork, WalletAuditReadPort
+from services.finance.ports import CashAdjustmentReadPort
 
 
 class LedgerAction(StrEnum):
@@ -364,8 +365,17 @@ class TradingPort(Protocol):
     async def reversible(self, deal_id: int) -> None: ...
 
 
+class TradingHistoryPort(Protocol):
+    wallet_queries: WalletAuditReadPort
+    cash_queries: CashAdjustmentReadPort
+
+    async def tail(self, operation_id: int, extra_accounts: tuple[int, ...]) -> tuple[dict, list[dict]]: ...
+    async def exchange_revalued(self, deal_id: int, operation_id: int) -> None: ...
+
+
 class TradingUnitOfWork(ClientUnitOfWork, Protocol):
     trades: TradingPort
+    history: TradingHistoryPort
 
 
 class TradingReadPort(Protocol):

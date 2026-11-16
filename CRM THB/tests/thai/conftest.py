@@ -1,5 +1,7 @@
 """New schema fixtures, deliberately separate from legacy tests/db fixtures."""
 
+from contextlib import asynccontextmanager
+
 import asyncpg
 import pytest
 import pytest_asyncio
@@ -37,8 +39,8 @@ async def thai_db(thai_connection):
         await transaction.rollback()
 
 
-@pytest_asyncio.fixture
-async def finance():
+@asynccontextmanager
+async def finance_database():
     with disposable_thai_database("crm_thai_finance") as url:
         await AlembicMigrator(url, schema="thai").upgrade_to_head()
         pool = await asyncpg.create_pool(url, min_size=1, max_size=8)
@@ -54,3 +56,15 @@ async def finance():
                    "actor": actor, "cash": cash, "equity": equity}
         finally:
             await pool.close()
+
+
+@pytest_asyncio.fixture
+async def finance():
+    async with finance_database() as database:
+        yield database
+
+
+@pytest_asyncio.fixture
+async def reference_finance():
+    async with finance_database() as database:
+        yield database
