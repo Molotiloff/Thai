@@ -1,5 +1,6 @@
 # handlers/managers.py
 from aiogram import Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import Message
 
@@ -28,7 +29,21 @@ class ManagersHandler:
 
         actor=await self.authorize(message.from_user.id) if self.authorize and message.from_user else None
         kwargs={'actor_id':actor,'key':f'tg:{message.chat.id}:{message.message_id}:manager'} if self.authorize else {}
-        text=await self.service.handle_command(message.text or '',**kwargs)
+
+        async def profile(user_id):
+            try:
+                chat = await message.bot.get_chat(user_id, request_timeout=5)
+            except TelegramAPIError:
+                # A manager may not have a private conversation with the bot.
+                # The admin group's member profile can still contain their nick.
+                try:
+                    member = await message.bot.get_chat_member(self.admin_chat_id, user_id, request_timeout=5)
+                except TelegramAPIError:
+                    return None
+                return {'username': member.user.username}
+            return {'username': getattr(chat, 'username', None)}
+
+        text=await self.service.handle_command(message.text or '',profile_resolver=profile,**kwargs)
         from services.admin_client.client_directory_service import ClientDirectoryService
         for chunk in ClientDirectoryService._chunk(text):
             await message.answer(chunk,parse_mode='HTML')

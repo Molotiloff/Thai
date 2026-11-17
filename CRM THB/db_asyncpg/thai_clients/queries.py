@@ -19,7 +19,9 @@ class ClientQueries:
 
     async def list_managers(self):
         return [dict(row) for row in await self._pool.fetch("""
-            SELECT u.telegram_user_id AS user_id,u.display_name FROM users u JOIN user_roles r ON r.user_id=u.id
+            SELECT u.telegram_user_id AS user_id,u.display_name,a.username
+            FROM users u JOIN user_roles r ON r.user_id=u.id
+            LEFT JOIN message_archive_authors a ON a.telegram_user_id=u.telegram_user_id
             WHERE u.is_active AND r.role='manager' AND u.telegram_user_id IS NOT NULL ORDER BY u.telegram_user_id
         """)]
 

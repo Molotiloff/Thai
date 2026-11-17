@@ -245,7 +245,8 @@ async def test_manager_command_audit_roles_retry_and_revocation(finance):
     try:
         await feed(dp,bot,message('/mgr@bot + 777 <Staff>',chat=-900,mid=1))
         assert await app.client_queries.is_manager(777)
-        assert '&lt;Staff&gt;' in session.sent[-1].text
+        assert '<code>777</code>' in session.sent[-1].text
+        assert 'Staff' not in session.sent[-1].text
         await feed(dp,bot,message('/mgr + 777 <Staff>',chat=-900,mid=1))
         assert await finance['pool'].fetchval("SELECT count(*) FROM client_directory_events WHERE kind='manager_change'")==1
         await feed(dp,bot,message('/mgr + 888 Evil',chat=-900,user=777,mid=2))
@@ -266,6 +267,34 @@ async def test_manager_command_audit_roles_retry_and_revocation(finance):
         assert await finance['pool'].fetchval('SELECT count(*) FROM financial_operations')==0
     finally:
         await bot.session.close()
+
+
+async def test_manager_usernames_from_archive_and_permission_before_profile_lookup(finance):
+    app=finance['app']
+    await app.manager_admin.handle_command('/mgr + 777 Staff',actor_id=finance['actor'],key='add-staff')
+    await finance['pool'].execute("""
+        INSERT INTO message_archive_authors(telegram_user_id,display_name,username)
+        VALUES (777,'Telegram Staff','archived_staff')
+    """)
+    rows=await app.client_queries.list_managers()
+    assert next(row for row in rows if row['user_id']==777)['username']=='archived_staff'
+    unavailable=AsyncMock(return_value=None)
+    text=await app.manager_admin.handle_command('/mgr',actor_id=finance['actor'],key='list-staff',profile_resolver=unavailable)
+    assert '<code>777</code> — @archived_staff (последний известный)' in text
+    assert ' — Staff' not in text
+    current=AsyncMock(return_value={'username':'current_staff'})
+    text=await app.manager_admin.handle_command('/mgr',actor_id=finance['actor'],key='list-current',profile_resolver=current)
+    assert '@current_staff' in text and '@archived_staff' not in text
+    cashier=await finance['pool'].fetchval("INSERT INTO users(telegram_user_id,display_name) VALUES (555,'Cashier') RETURNING id")
+    await finance['pool'].execute("INSERT INTO user_roles VALUES ($1,'cashier')",cashier)
+    forbidden=AsyncMock(return_value={'username':'must_not_lookup'})
+    with pytest.raises(PermissionDenied):
+        await app.manager_admin.handle_command('/mgr',actor_id=cashier,key='denied-list',profile_resolver=forbidden)
+    with pytest.raises(PermissionDenied):
+        await app.manager_admin.handle_command('/mgr + 888 Other',actor_id=cashier,key='denied-add',profile_resolver=forbidden)
+    forbidden.assert_not_awaited()
+    assert not await app.client_queries.is_manager(888)
+    assert await finance['pool'].fetchval('SELECT count(*) FROM financial_operations')==0
 
 
 async def test_broadcast_original_reply_preview_confirmation_and_role_checks(finance):
