@@ -21,6 +21,7 @@ from db_asyncpg.thai_trading.queries import TradingQueries
 from db_asyncpg.thai_trading.uow import AsyncpgTradingUnitOfWork
 from services.accounting.cash_settlement_service import CashSettlementService
 from services.accounting.manual_cash_service import ManualCashService
+from services.accounting.manual_profit import ManualProfitService
 from services.accounting.profit_service import ProfitService
 from services.act_counter import ActCounterService
 from services.admin_client.client_bootstrap_service import ClientBootstrapService
@@ -108,6 +109,7 @@ class ApplicationContainer:
 
     manual_cash: ManualCashService
 
+    manual_profit: ManualProfitService
     config: Config | None = None
 
     @classmethod
@@ -212,6 +214,7 @@ class ApplicationContainer:
             ManagerAdminService(client_queries,uow_factory=client_uow),
             ManualCashService(posting=OperationPostingService(client_uow),queries=FinanceQueries(pool),
                 reversals=ReversalService(client_uow),ledger_uow_factory=client_uow),
+            ManualProfitService(trading_uow),
             config,
         )
 

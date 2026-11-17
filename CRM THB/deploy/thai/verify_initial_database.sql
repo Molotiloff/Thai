@@ -11,8 +11,8 @@ BEGIN
         RAISE EXCEPTION 'Expected the isolated PostgreSQL server on port 5433';
     END IF;
     IF (SELECT count(*) FROM alembic_version_thai) <> 1
-        OR (SELECT version_num FROM alembic_version_thai LIMIT 1) <> 'thai_0026' THEN
-        RAISE EXCEPTION 'Expected Thai revision thai_0026';
+        OR (SELECT version_num FROM alembic_version_thai LIMIT 1) <> 'thai_0027' THEN
+        RAISE EXCEPTION 'Expected Thai revision thai_0027';
     END IF;
     IF (SELECT count(*) FROM crm_schema_identity) <> 1 OR NOT EXISTS (
         SELECT 1 FROM crm_schema_identity WHERE family='thai'

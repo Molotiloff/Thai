@@ -12,13 +12,15 @@ BASE_SQL = "(" + ",".join(f"'{code}'" for code in BASE_INSTRUMENTS) + ")"
 ENTRIES = f"""
 WITH entries AS (
  SELECT 'deal:'||d.id AS entry_id,d.id AS deal_id,d.operation_id,d.client_id,
-     coalesce(p.name,'Кассовый обмен') AS client_name,u.display_name AS created_by,
-     CASE WHEN d.kind IN ('deposit','withdrawal','cash_exchange') AND d.status='posted'
+     coalesce(p.name,CASE WHEN d.kind='manual_profit' THEN 'Без клиента' ELSE 'Кассовый обмен' END) AS client_name,u.display_name AS created_by,
+     CASE WHEN d.kind='manual_profit' THEN posted_op.business_date::timestamp AT TIME ZONE 'Asia/Bangkok'
+          WHEN d.kind IN ('deposit','withdrawal','cash_exchange') AND d.status='posted'
         THEN coalesce(posted_op.effective_at,d.created_at) ELSE d.created_at END AS created_at,
      CASE WHEN d.kind IN ('deposit','withdrawal') AND d.status='posted'
       AND NOT EXISTS(SELECT 1 FROM active_financial_originals a WHERE a.id=d.operation_id)
       THEN 'cancelled' ELSE d.effective_status END AS status,
-     CASE WHEN d.kind IN ('best_change','deposit','withdrawal') THEN d.kind
+     CASE WHEN d.kind='manual_profit' THEN 'profit'
+          WHEN d.kind IN ('best_change','deposit','withdrawal') THEN d.kind
           WHEN d.attributes->'receive'->>'instrument' IN {BASE_SQL}
            AND d.attributes->'pay'->>'instrument' NOT IN {BASE_SQL} THEN 'sale'
           WHEN d.attributes->'pay'->>'instrument' IN {BASE_SQL}
@@ -68,6 +70,7 @@ class DealWorkspaceQueries:
             "withdrawal",
             "client_transfer",
             "thb_transfer",
+            "profit",
         ):
             raise InvalidPosting("Неизвестный тип операции")
         stamp, identity = None, None

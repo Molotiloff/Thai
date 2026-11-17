@@ -45,7 +45,7 @@ function request(pathname,{method='POST',origin='https://crm.example.org'}={}){
 async function forward(pathname,options){
   return route[options?.method??'POST'](request(pathname,options),{params:Promise.resolve({path:pathname.slice(1).split('/')})});
 }
-for(const pathname of ['/deals','/deals/1/ready','/deals/1/post','/cash-requests',
+for(const pathname of ['/deals','/deals/profit','/deals/1/profit-correction','/deals/1/profit-cancel','/deals/1/ready','/deals/1/post','/cash-requests',
   '/cash-requests/1/settle','/capital/agreements','/capital/agreements/1/contributions',
   '/capital/agreements/1/withdrawals','/expenses','/expenses/participants/skyex/binding','/profit/payments']){
   assert.equal((await forward(pathname)).status,200,pathname);
@@ -95,3 +95,18 @@ assert.match(expensePreview({...expense,equal_split:'','shares.daniyar':'20','sh
 assert.match(expensePreview({...expense,quoted_rate:'0'}),/положительными/);
 assert.match(expensePreview({...expense,equal_split:'','shares.common':'99'}),/100%/);
 console.log('PASS: expense USDT valuation, exact thirds, cash/personal payers, Daniyar net balance, percentages and invalid rates.');
+
+const {dealSpec}=load(path.join(root,'src/thai/deals/specs.ts'));
+const {entryAmount,entryDirection}=load(path.join(root,'src/thai/deals/model.ts'));
+const profitSpec=dealSpec('profit',[['1','Роджер']],'2026-11-17');
+assert.equal(profitSpec.path,'/deals/profit');
+assert.deepEqual(profitSpec.fields.filter(f=>f.required!==false).map(f=>f.name),['amount_usdt']);
+assert.equal(profitSpec.fields.find(f=>f.name==='business_date').value,'2026-11-17');
+assert.equal(profitSpec.fields.find(f=>f.name==='client_id').value,'');
+assert(!profitSpec.fields.some(f=>f.name.includes('rate')||f.name==='instrument'||f.name==='mode'));
+const loss={kind:'profit',attributes:{amount_usdt:'-12.50',thb_amount:'1000'}};
+assert.match(entryAmount(loss),/-12/);
+assert.match(entryAmount(loss),/USDT/);
+assert.match(entryAmount(loss),/THB/);
+assert.match(entryDirection(loss),/USDT/);
+console.log('PASS: profit entry fields, optional client/THB/comment, accounting date and signed USDT display.');

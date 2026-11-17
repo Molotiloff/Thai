@@ -1,6 +1,5 @@
 import json
 import re
-import shlex
 from zoneinfo import ZoneInfo
 
 from aiogram.exceptions import TelegramAPIError
@@ -11,6 +10,7 @@ from app.thai_russian_commands import (
     instrument,
 )
 from domain.finance.models import InvalidPosting
+from services.accounting.profit_command import telegram_words
 from services.finance.outbox import DeliveryError
 
 
@@ -138,7 +138,7 @@ class ThaiTelegramCommands:
         self, *, telegram_user_id, chat_id, message_id, text, effective_at, private=False,
         chat_name=None, actor_name=None,
     ):
-        words = shlex.split(text)
+        words = telegram_words(text)
         command, args = words[0].split("@")[0].lower(), words[1:]
         key = f"tg:{chat_id}:{message_id}"
         response = await self._russian.execute_customer(
@@ -296,6 +296,11 @@ class ThaiTelegramDelivery:
             operation_id,
         )
         details = json.loads(row["command_details"])
+        if row['kind'] == 'manual_profit':
+            return
+        if row['kind'] == 'reversal' and details.get('original') and await self._app.pool.fetchval(
+            "SELECT kind='manual_profit' FROM financial_operations WHERE id=$1", details['original']):
+            return
         if row['kind']=='expense' and details.get('settlement_version')==2:
             await self.deliver_expense(operation_id)
             return

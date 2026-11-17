@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 
 import asyncpg
 
@@ -9,6 +10,26 @@ from domain.finance.models import InvalidPosting, PermissionDenied, canonical_js
 class ClientsRepository:
     def __init__(self, connection: asyncpg.Connection):
         self._db = connection
+
+    async def resolve_profit_client(self, reference):
+        if reference.startswith('#'):
+            if not re.fullmatch(r'#[0-9]+', reference) or not 0 < int(reference[1:]) <= 9223372036854775807:
+                raise InvalidPosting('Укажите положительный ID клиента, например #42')
+            identity = await self._db.fetchval('SELECT id FROM clients WHERE id=$1 AND is_active', int(reference[1:]))
+            if identity is None:
+                raise InvalidPosting('Клиент не найден или закрыт; запись прибыли не создана')
+            return identity
+        rows = await self._db.fetch("""
+            SELECT c.id,p.name FROM clients c JOIN parties p ON p.id=c.party_id
+            WHERE c.is_active ORDER BY c.id
+        """)
+        matches = [row for row in rows if row['name'].strip().casefold() == reference.strip().casefold()]
+        if not matches:
+            raise InvalidPosting('Клиент с таким точным именем не найден. Укажите #ID или проверьте имя; запись не создана')
+        if len(matches) > 1:
+            ids = ', '.join(f"#{row['id']}" for row in matches[:10])
+            raise InvalidPosting(f'Несколько клиентов с этим именем: {ids}. Укажите #ID; запись не создана')
+        return matches[0]['id']
 
     async def change_manager(self, telegram_user_id, display_name, enabled):
         if telegram_user_id<=0 or telegram_user_id>9223372036854775807:

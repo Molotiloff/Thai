@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import Depends, Query
 from pydantic import BaseModel, Field, StrictStr
@@ -76,7 +76,49 @@ class RevisionRequest(CommandRequest):
     reason: str = Field(min_length=1)
 
 
+class ManualProfitMetadata(BaseModel):
+    idempotency_key: str = Field(min_length=1, max_length=200)
+    business_date: date | None = None
+    effective_at: datetime | None = None
+    profit_revision_id: int | None = Field(None, gt=0)
+
+
+class ManualProfitRequest(ManualProfitMetadata):
+    amount_usdt: StrictStr
+    client_id: int | None = Field(None, gt=0)
+    thb_amount: StrictStr | None = None
+    comment: str = Field('', max_length=2000)
+
+
+class ManualProfitCorrection(ManualProfitRequest):
+    expected_deal_id: int = Field(gt=0)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class ManualProfitCancel(ManualProfitMetadata):
+    expected_deal_id: int = Field(gt=0)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 def register_profit_routes(app, container, actor):
+    @app.post('/api/v1/deals/profit')
+    async def manual_profit(payload: ManualProfitRequest, user: int = Depends(actor)):
+        return response(await container.manual_profit.record(key=payload.idempotency_key, actor_id=user,
+            **payload.model_dump(exclude={'idempotency_key'})))
+
+    @app.post('/api/v1/deals/{deal_id}/profit-correction')
+    async def correct_manual_profit(deal_id: int, payload: ManualProfitCorrection, user: int = Depends(actor)):
+        return response(await container.manual_profit.change(key=payload.idempotency_key, actor_id=user,
+            deal_id=deal_id, expected_deal_id=payload.expected_deal_id, reason=payload.reason,
+            effective_at=payload.effective_at, business_date=payload.business_date,
+            profit_revision_id=payload.profit_revision_id,
+            replacement=payload.model_dump(include={'amount_usdt','client_id','thb_amount','comment'})))
+
+    @app.post('/api/v1/deals/{deal_id}/profit-cancel')
+    async def cancel_manual_profit(deal_id: int, payload: ManualProfitCancel, user: int = Depends(actor)):
+        return response(await container.manual_profit.change(key=payload.idempotency_key, actor_id=user,
+            deal_id=deal_id, **payload.model_dump(exclude={'idempotency_key'})))
+
     @app.post("/api/v1/best-change/preview")
     async def preview(payload: BestChangePreviewRequest, user: int = Depends(actor)):
         return response(calculate_best_change(**payload.model_dump()))

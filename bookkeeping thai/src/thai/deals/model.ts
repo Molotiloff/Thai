@@ -9,6 +9,7 @@ export const OPERATIONS = [
   {type:'conversion',label:'Конвертация',icon:'repeat'},
   {type:'thb_transfer',label:'Нал / безнал',icon:'shuffle'},
   {type:'best_change',label:'BestChange',icon:'coins'},
+  {type:'profit',label:'Прибыль',icon:'income'},
 ] as const satisfies readonly {type:string;label:string;icon:IconName}[];
 export type OperationType=typeof OPERATIONS[number]['type'];
 export const STATUSES = [
@@ -29,6 +30,7 @@ export function operationLabel(kind:string):string {return OPERATIONS.find(o=>o.
 export function instrumentLabel(code:unknown):string {return instruments.find(i=>i[0]===code)?.[1]??String(code??'');}
 export function entryDirection(entry:DealEntry):string {
   const a=entry.attributes;
+  if(entry.kind==='profit')return 'Итоговый результат · USDT';
   if(a.receive&&a.pay) return `${instrumentLabel((a.receive as Row).instrument)} → ${instrumentLabel((a.pay as Row).instrument)}`;
   if(entry.kind==='client_transfer') return `${entry.client_name} → ${String(a.target_name??'Клиент #'+a.target_client)}`;
   if(entry.kind==='thb_transfer') return `${instrumentLabel(a.source)} → ${instrumentLabel(a.target)}`;
@@ -36,6 +38,7 @@ export function entryDirection(entry:DealEntry):string {
 }
 export function entryAmount(entry:DealEntry):string {
   const a=entry.attributes;
+  if(entry.kind==='profit')return `${money(a.amount_usdt)} USDT${a.thb_amount?` · ${money(a.thb_amount)} THB`:''}`;
   if(a.receive&&a.pay) return `${money((a.receive as Row).quantity)} ${instrumentLabel((a.receive as Row).instrument)} / ${money((a.pay as Row).quantity)} ${instrumentLabel((a.pay as Row).instrument)}`;
   return `${money(a.quantity)} ${instrumentLabel(a.instrument??a.source)}`;
 }

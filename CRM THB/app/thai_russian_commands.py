@@ -5,6 +5,7 @@ from datetime import date
 from decimal import DecimalException
 
 from domain.finance.models import InvalidPosting, rounded
+from services.accounting.profit_command import parse_profit_command
 from services.cash_requests.constants import ACCOUNTING_CASH_SUFFIXES, ACCOUNTING_FX_CMD_MAP
 from services.cash_requests.keyboard_port import NullCashKeyboardPresenter
 from services.exchange.accept_short_service import AcceptShortService
@@ -90,7 +91,9 @@ HELP = f"""📖 Команды тайской CRM
 /бест история ДД.ММ.ГГГГ покупка|продажа сумма курсРынка курсКлиента [бат|безнал]
 /бест сторно IDоперации причина
 /бест привязать IDбуферногоКлиента IDДанияра
-/прибыль [ММ.ГГГГ]
+/прибыль суммаUSDT [имя клиента или #ID] [количество батов] [! комментарий]
+Пример: /прибыль 125,50 "Иван Петров" 100000 ! Старая сделка
+Минус — убыток. Клиент и баты необязательны. Только точное имя существующего клиента; при совпадениях укажите #ID. Дата — сегодня; изменить её можно в CRM. Касса и кошельки не меняются.
 /прибыль закрыть ММ.ГГГГ
 /прибыль выплата скайекс|пе|площадка валюта сумма [курс]
 /отмена IDзаявки причина · /сторно IDоперации причина
@@ -261,7 +264,7 @@ class RussianTelegramCommands:
         if command == "/бест":
             return await self._best(args, common)
         if command == "/прибыль":
-            return await self._profit(args, common)
+            return await self._profit(args, common, text)
         if command[1:] in INSTRUMENTS and len(args)==2 and re.fullmatch(r'Б-\d+', args[1]):
             request = await self._app.trading_queries.detail(self._app.cash_requests.deal_id(args[1]))
             if not self._config.can_settle_cash(chat_id,request['attributes'].get('source_chat_id')):
@@ -435,7 +438,7 @@ class RussianTelegramCommands:
         deal = await self._app.pool.fetchval('SELECT id FROM deals WHERE operation_id=$1',posted.id)
         return format_best_change_result(await self._app.profit_queries.best_change_context(deal))
 
-    async def _profit(self, args, common):
+    async def _profit(self, args, common, text):
         if args and args[0].lower() == "закрыть":
             if len(args) != 2:
                 raise InvalidPosting("/прибыль закрыть ММ.ГГГГ")
@@ -450,8 +453,17 @@ class RussianTelegramCommands:
             result = await self._app.profit.pay(**common, recipient=recipients[args[1].lower()],
                 instrument=code, quantity=amount(args[3], code), quoted_rate=amount(args[4]) if len(args) == 5 else None)
             return f"Выплата проведена: операция {result.id}"
-        if len(args) > 1:
-            raise InvalidPosting("/прибыль [ММ.ГГГГ]")
-        period = month(args[0]) if args else common["business_date"].replace(day=1)
-        report = await self._app.profit_queries.report(period)
-        return f"{period:%m.%Y} · USDT\nДоход: {report['income_usdt']}\nРасходы: {report['business_expenses_usdt']}\nПроценты: {report['investor_interest_usdt']}\nЧистая прибыль: {report['net_profit_usdt']}"
+        parsed = parse_profit_command(text)
+        result = await self._app.manual_profit.record(**common, amount_usdt=parsed.amount_usdt,
+            client_reference=parsed.client_reference, thb_amount=parsed.thb_amount, comment=parsed.comment)
+        lines = [f"✅ Запись прибыли #{result['deal_id']} сохранена",
+                 f"Результат: {parsed.amount_usdt:f} USDT", f"Дата учёта: {result['business_date']}"]
+        if parsed.client_reference:
+            reference = parsed.client_reference
+            lines.append('Клиент: '+(reference if len(reference)<=300 else reference[:300]+'…'))
+        if parsed.thb_amount is not None:
+            lines.append(f'Количество батов: {parsed.thb_amount:f}')
+        if parsed.comment:
+            lines.append(f'Комментарий: {parsed.comment}')
+        lines.append('Касса и кошельки не изменены.')
+        return '\n'.join(lines)

@@ -10,6 +10,7 @@ from app.runtime import BotRuntimeServices
 from app.thai_russian_commands import CASH, FX_CASH, RECEIVE
 from app.thai_telegram import ThaiTelegramCommands, ThaiTelegramDelivery
 from domain.finance.models import FinanceError
+from services.accounting.profit_command import telegram_words
 from services.finance.outbox import DeliveryError
 from services.payment_watch.service import PaymentMonitor
 from services.payment_watch.tronscan_gateway import TronscanGateway, TronscanSettings
@@ -132,7 +133,7 @@ def create_router(commands, *, archive_handler=None, aml_handler=None):
             return
         command = ""
         try:
-            words = shlex.split(message.text)
+            words = telegram_words(message.text)
             command = words[0].split("@")[0].lower()
             if command=='/whoami':
                 await cmd_whoami(message)
@@ -226,6 +227,6 @@ def create_router(commands, *, archive_handler=None, aml_handler=None):
         elif command in ("/start", "/помоги", "/скрыть"):
             await message.answer(text, reply_markup=ReplyKeyboardRemove())
         else:
-            await message.answer(text, **({"parse_mode":"HTML"} if command in ("/кошелек", "/кошелёк", "/дай") and text.startswith("<code>") else {}))
+            await message.answer(text, **({'parse_mode':None} if command=='/прибыль' else {"parse_mode":"HTML"} if command in ("/кошелек", "/кошелёк", "/дай") and text.startswith("<code>") else {}))
 
     return router

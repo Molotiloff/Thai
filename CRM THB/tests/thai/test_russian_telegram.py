@@ -158,7 +158,7 @@ async def test_russian_bestchange_and_report(finance):
     first = await send("/бест продажа 100 35 36 бат", message_id=100)
     assert await send("/бест продажа 100 35 36 бат", message_id=100) == first
     assert "Доля Данияра: 1" in await send("/бест отчет 10.2026")
-    assert "Чистая прибыль: 1" in await send("/прибыль 10.2026")
+    assert (await finance['app'].profit_queries.report(INSTANT.date().replace(day=1)))['net_profit_usdt'] == 1
 
 
 async def test_bot_authorization_auto_client_and_token_disabled(finance):

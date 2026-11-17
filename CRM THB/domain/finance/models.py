@@ -127,6 +127,7 @@ class OperationKind(StrEnum):
     WALLET_WITHDRAWAL = "wallet_withdrawal"
     WALLET_TRANSFER = "wallet_transfer"
     TRADE = "fx_trade"
+    MANUAL_PROFIT = "manual_profit"
     WALLET_CONVERSION = "wallet_conversion"
     MARKET_RATE = "market_rate"
     CAPITAL_CONTRIBUTION = "capital_contribution"

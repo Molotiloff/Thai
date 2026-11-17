@@ -6,8 +6,13 @@ const day:Field={name:'business_date',label:'Дата учёта (Бангкок
 const quantity:Field={name:'quantity',label:'Сумма',kind:'money'};
 const instrument:Field={name:'instrument',label:'Валюта / счёт',options:instruments};
 const comment:Field={name:'comment',label:'Комментарий',required:false};
-export function dealSpec(type:OperationType,clients:readonly ClientOption[]):FormSpec{
+export function dealSpec(type:OperationType,clients:readonly ClientOption[],today?:string):FormSpec{
   const client=(name='client_id',label='Клиент',required=true):Field=>({name,label,kind:'id',options:clients,required,value:''});
+  if(type==='profit')return {title:'Прибыль',path:'/deals/profit',permission:'deal.post',
+    fields:[{name:'amount_usdt',label:'Сумма USDT (минус — убыток)',kind:'money'},
+      {...day,value:today},client('client_id','Клиент',false),
+      {name:'thb_amount',label:'Количество батов',kind:'money',required:false},comment],
+    note:'Укажите окончательную прибыль после комиссий или убыток со знаком минус. Касса и кошельки клиентов не меняются; количество батов сохраняется для справки.'};
   if(type==='best_change')return {...bestChangeForms[0],fields:bestChangeForms[0].fields.map(f=>f.name==='client_id'?client('client_id','Клиент',false):f)};
   if(type==='deposit'||type==='withdrawal')return {title:type==='deposit'?'Заявка на внесение':'Заявка на выдачу',path:'/cash-requests',permission:'deal.post',financial:false,fields:[client(),{name:'kind',label:'Тип заявки',value:type,readOnly:true},instrument,quantity,{name:'contact1',label:type==='deposit'?'Принимает':'Выдаёт',required:false},{name:'contact2',label:'Второй контакт',required:false},comment],note:'Создаётся заявка. Деньги учитываются после готовности и фактического кассового расчёта.'};
   if(type==='client_transfer')return {title:'Перевод клиент → клиент',path:'/clients/transfers',permission:'finance.post',fields:[client('source_client_id','Отправитель'),client('target_client_id','Получатель'),instrument,quantity,day,comment],note:'Перевод между кошельками в одной валюте. Общая касса не меняется.'};

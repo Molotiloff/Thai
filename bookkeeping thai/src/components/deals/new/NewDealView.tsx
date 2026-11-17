@@ -15,11 +15,11 @@ const subscribe=()=>()=>{};
 const ready=()=>true;
 const notReady=()=>false;
 const initial:Record<string,string>={};
-export function NewDealView({clients,session,initialType='sale'}:{clients:ClientOption[];session:Session;initialType?:OperationType}){
+export function NewDealView({clients,session,initialType='sale',today}:{clients:ClientOption[];session:Session;initialType?:OperationType;today?:string}){
   const router=useRouter();const hydrated=useSyncExternalStore(subscribe,ready,notReady);
   const [type,setType]=useState<OperationType>(initialType);const [values,setValues]=useState(initial);const [busy,setBusy]=useState(false);const [submitted,setSubmitted]=useState(false);
   const [preview,setPreview]=useState<Row|null>(null);
-  const spec=dealSpec(type,clients);const permitted=can(session,spec.permission);
+  const spec=dealSpec(type,clients,today);const permitted=can(session,spec.permission);
   const anchor=useRef<ExchangeAnchor>('receive');
   const isExchange=['sale','purchase','conversion'].includes(type);
   const selectedInstrument=(name:string)=>values[name]||spec.fields.find(field=>field.name===name)?.value||spec.fields.find(field=>field.name===name)?.options?.[0]?.[0]||'';
@@ -40,7 +40,11 @@ export function NewDealView({clients,session,initialType='sale'}:{clients:Client
     return ()=>{clearTimeout(timer);controller.abort();};
   },[type,values]);
   function change(next:OperationType){anchor.current='receive';setType(next);setValues(initial);setPreview(null);setSubmitted(false);}
-  const calcRows:CalcRow[]=type==='best_change'?[
+  const calcRows:CalcRow[]=type==='profit'?[
+    {label:'Прибыль / убыток USDT',text:money(values.amount_usdt)},
+    {label:'Дата учёта',text:values.business_date||today||'Сегодня'},
+    {label:'Количество батов',text:values.thb_amount?money(values.thb_amount):'Не указано'},
+  ]:type==='best_change'?[
     {label:'Количество USDT',text:money(values.quantity)},
     {label:'Сумма THB',text:money(preview?.thb_quantity)},
     {label:'Спред USDT',text:money(preview?.gross_usdt)},
@@ -57,6 +61,6 @@ export function NewDealView({clients,session,initialType='sale'}:{clients:Client
     <DealDataCard title={OPERATIONS.find(o=>o.type===type)?.label??type} note={spec.note}>
       {permitted?<ActionForm key={type} spec={spec} formId="new-deal" className={styles.form} submitLabel="Добавить сделку" onValuesChange={setValues} deriveValues={isExchange?deriveValues:undefined} onBusyChange={setBusy} onSuccess={result=>{setSubmitted(true);router.push(result.deal_id?'/deals/'+result.deal_id:'/operations/'+result.id);}}/>:<p>Ваша роль позволяет просматривать сделки. Для проведения требуется право {spec.permission}.</p>}
     </DealDataCard>
-    <AutoCalcCard rows={calcRows} note={type==='best_change'?'Расчёт выполняет backend по тем же правилам, что применяются при проведении.':isExchange?'Введите одну сумму и прямой либо обратный курс пары — вторая сумма подставится автоматически. Оценка в USDT определяется автоматически, по тем же правилам, что и в боте.':'Кошелёк клиента может уходить в минус. Номер документа присваивается автоматически.'}/>
+    <AutoCalcCard title={type==='profit'?'Результат сделки':undefined} rows={calcRows} note={type==='profit'?'Результат войдёт в отчёт прибыли за выбранный месяц. Никаких дополнительных комиссий или движений денег.':type==='best_change'?'Расчёт выполняет backend по тем же правилам, что применяются при проведении.':isExchange?'Введите одну сумму и прямой либо обратный курс пары — вторая сумма подставится автоматически. Оценка в USDT определяется автоматически, по тем же правилам, что и в боте.':'Кошелёк клиента может уходить в минус. Номер документа присваивается автоматически.'}/>
   </div></>;
 }

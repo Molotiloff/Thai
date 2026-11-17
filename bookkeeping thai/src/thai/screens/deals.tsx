@@ -17,10 +17,34 @@ export async function NewDeal({searchParams}:{searchParams:Promise<Params>}){
  const q=await searchParams;const value=param(q,'type');const type=OPERATIONS.find(o=>o.type===value)?.type??'sale';
  const clients:ClientOption[]=[];let after='';
  do {const data=await apiGet<Row>('/clients?limit=100'+(after?'&after_id='+after:''));clients.push(...rows(data.items).filter(c=>c.is_active).map(c=>[String(c.id),String(c.name)] as const));after=data.next_after_id?String(data.next_after_id):'';}while(after);
- return <NewDealView clients={clients} session={await session()} initialType={type}/>;
+ const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Bangkok'}).format(new Date());
+ return <NewDealView clients={clients} session={await session()} initialType={type} today={today}/>;
 }
 export async function DealDetail({params}:{params:Promise<{id:string}>}){
  const {id}=await params;const [data,user]=await Promise.all([apiGet<Row>('/deals/'+id),session()]);const attributes=data.attributes as Row;const incoming=attributes.receive as Row|undefined;const outgoing=attributes.pay as Row|undefined;
+ if(data.kind==='manual_profit'){
+  const active=data.effective_status==='posted';const specs:FormSpec[]=[];
+  if(active){
+   const clients:ClientOption[]=[];let after='';
+   do {const page=await apiGet<Row>('/clients?limit=100'+(after?'&after_id='+after:''));clients.push(...rows(page.items).filter(c=>c.is_active).map(c=>[String(c.id),String(c.name)] as const));after=page.next_after_id?String(page.next_after_id):'';}while(after);
+   specs.push({title:'Исправить прибыль',path:`/deals/${id}/profit-correction`,permission:'finance.reverse',
+    note:'Исходная запись и её исправление сохраняются в истории. Закрытый месяц требует ревизии.',fields:[
+     {name:'expected_deal_id',label:'Текущая версия',kind:'id',value:id,readOnly:true},
+     {name:'amount_usdt',label:'Сумма USDT (минус — убыток)',kind:'money',value:String(attributes.amount_usdt)},
+     {name:'business_date',label:'Дата учёта',kind:'date',value:String(attributes.business_date)},
+     {name:'client_id',label:'Клиент',kind:'id',options:clients,required:false,value:data.client_id?String(data.client_id):''},
+     {name:'thb_amount',label:'Количество батов',kind:'money',required:false,value:attributes.thb_amount?String(attributes.thb_amount):''},
+     {name:'comment',label:'Комментарий',required:false,value:String(attributes.comment??'')},
+     {name:'reason',label:'Причина исправления'}]});
+   specs.push({title:'Отменить прибыль',path:`/deals/${id}/profit-cancel`,permission:'finance.reverse',fields:[
+    {name:'expected_deal_id',label:'Текущая версия',kind:'id',value:id,readOnly:true},{name:'reason',label:'Причина отмены'}]});
+  }
+  return <Page back={{href:'/deals',label:'Сделки'}} title={`Прибыль #${id}`} subtitle={labels[String(data.effective_status)]??String(data.effective_status)}>
+   <Panel title="Результат сделки"><Table data={[attributes]} columns={[{key:'amount_usdt',title:'Прибыль / убыток USDT',amount:true},{key:'business_date',title:'Дата учёта'},{key:'thb_amount',title:'Количество батов',amount:true},{key:'comment',title:'Комментарий'}]}/></Panel>
+   <Panel title="Исправление и отмена"><OperationForms session={user} specs={specs}/></Panel>
+   <Panel title="История"><Table data={[data]} columns={[{key:'client_id',title:'Клиент',href:'/clients/{client_id}'},{key:'operation_id',title:'Операция',href:'/operations/{operation_id}'},{key:'replacement_deal_id',title:'Исправленная запись',href:'/deals/{replacement_deal_id}'}]}/></Panel>
+  </Page>;
+ }
  const cashRequest=data.kind==='deposit'||data.kind==='withdrawal'||data.kind==='cash_exchange';
  const cashState=String(data.effective_status);
  if(cashRequest){

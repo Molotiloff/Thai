@@ -396,6 +396,8 @@ class TradingService:
                 raise InvalidPosting("Время подтверждённого перевода должно содержать часовой пояс")
             settlement = {**settlement, "amount": exact(decimal(settlement["amount"]), 6)}
         deal = await work.trades.lock(deal_id) if work is not None else await self._queries.detail(deal_id)
+        if deal['kind'] == 'manual_profit':
+            raise InvalidPosting('Запись прибыли проводится при создании; используйте её исправление')
         if deal["kind"] in ("deposit", "withdrawal"):
             raise InvalidPosting("Кассовую заявку проводят фактической суммой через кассовый расчёт")
         attributes = deal["attributes"].get("contract", deal["attributes"])
@@ -573,6 +575,8 @@ class TradingService:
         work=None, before_reverse=None
     ):
         deal = await self._queries.detail(deal_id)
+        if deal['kind'] == 'manual_profit':
+            raise InvalidPosting('Запись прибыли отменяется через её карточку')
         if replacement is not None and deal["kind"] in ("deposit", "withdrawal", "cash_exchange"):
             raise InvalidPosting("После сторно создайте новую кассовую заявку")
         if replacement is not None:
