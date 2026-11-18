@@ -56,17 +56,22 @@ class TradingQueries:
             raise InvalidPosting('КТ должен быть активным клиентом с привязанным чатом')
         return dict(row)
 
-    async def detail(self, deal_id, *, connection=None):
-        db = connection if connection is not None else self._pool
-        row = await db.fetchrow("SELECT * FROM effective_deals WHERE id=$1", deal_id)
-        if row is None:
-            raise InvalidPosting("Сделка не найдена")
+    @staticmethod
+    def _present(row):
         result = dict(row)
         result["attributes"] = json.loads(row["attributes"])
         if result['kind'] in ('fx_trade', 'cash_exchange'):
             attributes = result['attributes']
             result['trade_type'] = baht_trade_type(attributes['receive']['instrument'], attributes['pay']['instrument'])
             result['trade_label'] = TRADE_LABELS[result['trade_type']]
+        return result
+
+    async def detail(self, deal_id, *, connection=None):
+        db = connection if connection is not None else self._pool
+        row = await db.fetchrow("SELECT * FROM effective_deals WHERE id=$1", deal_id)
+        if row is None:
+            raise InvalidPosting("Сделка не найдена")
+        result = self._present(row)
         if result['kind']=='cash_exchange':
             result['cash_confirmations'] = [dict(item) for item in await db.fetch(
                 'SELECT * FROM cash_exchange_confirmations WHERE deal_id=$1 ORDER BY direction',deal_id)]
@@ -88,7 +93,7 @@ class TradingQueries:
             limit,
             client_id,
         )
-        return [{**dict(row), "attributes": json.loads(row["attributes"])} for row in rows]
+        return [self._present(row) for row in rows]
 
     async def exchange_context(self, deal_id, *, connection=None):
         db = connection if connection is not None else self._pool

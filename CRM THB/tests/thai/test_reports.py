@@ -91,9 +91,9 @@ async def test_clients_workspace_uses_live_wallets_groups_and_historical_turnove
     assert len(row['wallets']) == 8
     assert next(w['balance'] for w in row['wallets'] if w['instrument_code']=='THB_CASH') == -3500
     assert row['stats']['turnover_usdt'] == 100
-    assert row['stats']['sale_usdt'] == 100
+    assert row['stats']['purchase_usdt'] == 100
     assert row['stats']['operations_count'] == 1
-    assert row['recent'][0]['kind'] == 'sale'
+    assert row['recent'][0]['kind'] == 'purchase'
     assert row['recent'][0]['href'].startswith('/deals/')
     await send('/отмена 1 Проверка')
     row = (await finance['app'].client_queries.workspace(client_id))['clients'][0]

@@ -155,8 +155,8 @@ async def test_russian_bestchange_and_report(finance):
     _, send = bot(finance)
     await configure(finance)
     await fund(finance, instrument="USDT", quantity=Decimal(100))
-    first = await send("/бест продажа 100 35 36 бат", message_id=100)
-    assert await send("/бест продажа 100 35 36 бат", message_id=100) == first
+    first = await send("/бест покупка 100 35 36 бат", message_id=100)
+    assert await send("/бест покупка 100 35 36 бат", message_id=100) == first
     assert "Доля Данияра: 1" in await send("/бест отчет 10.2026")
     assert (await finance['app'].profit_queries.report(INSTANT.date().replace(day=1)))['net_profit_usdt'] == 1
 
@@ -217,7 +217,7 @@ async def test_all_accept_short_pairs_classify_from_exchange_perspective(finance
     from tests.thai.test_internal_exchange_rates import seed_internal_rates
     await seed_internal_rates(finance)
     client_id = await finance["app"].trading_queries.client_by_chat(-123)
-    from domain.deal_policy import exchange_type
+    from domain.deal_policy import baht_trade_type, exchange_type
 
     expected = {code: Decimal(0) for code in RECEIVE.values()}
     counts = {"sale": 0, "purchase": 0, "conversion": 0}
@@ -227,7 +227,7 @@ async def test_all_accept_short_pairs_classify_from_exchange_perspective(finance
             if source == target:
                 continue
             result = await send(f"{command}@testexchange3bot 2*50 {marker} 10*5 тест {source} → {target}")
-            kind = exchange_type(source, target)
+            kind = baht_trade_type(source, target)
             counts[kind] += 1
             assert result.startswith("<b>Заявка</b>: <code>")
             assert "<b>Получаем</b>" in result and "<b>Отдаём</b>" in result
@@ -245,7 +245,8 @@ async def test_all_accept_short_pairs_classify_from_exchange_perspective(finance
         result = await workspace.workspace(kind=kind, query="Все направления", limit=100)
         assert len(result["items"]) == count
         assert result["summaries"] == [{"status": "posted", "count": count}]
-        assert all(row["kind"] == kind and row["attributes"]["operation_type"] == kind
+        assert all(row["kind"] == kind and row["attributes"]["operation_type"] == exchange_type(
+                       row["attributes"]["receive"]["instrument"], row["attributes"]["pay"]["instrument"])
                    for row in result["items"])
 
 
@@ -283,8 +284,9 @@ async def test_corrected_trade_recalculates_type_from_replacement_pair(finance):
                      "pay": {"instrument": "THB_BANK", "quantity": "3600", "quoted_rate": "35"}},
     )
     result = await DealWorkspaceQueries(finance["pool"]).workspace()
-    assert {(row["status"], row["kind"]) for row in result["items"]} == {("cancelled", "sale"), ("draft", "purchase")}
-    assert all(row["kind"] == row["attributes"]["operation_type"] for row in result["items"])
+    assert {(row["status"], row["kind"]) for row in result["items"]} == {("cancelled", "purchase"), ("draft", "sale")}
+    assert all(row['kind'] == ('purchase' if row['attributes']['operation_type']=='sale' else 'sale')
+               for row in result['items'])
 
 
 async def test_existing_bot_conversions_and_manual_trades_classify_correctly(finance):
@@ -305,7 +307,7 @@ async def test_existing_bot_conversions_and_manual_trades_classify_correctly(fin
         old["deal_id"],
     )
     assert (await workspace.workspace(kind="conversion"))["items"] == []
-    assert {row["deal_id"] for row in (await workspace.workspace(kind="sale"))["items"]} == {old["deal_id"], manual}
+    assert {row["deal_id"] for row in (await workspace.workspace(kind="purchase"))["items"]} == {old["deal_id"], manual}
 
 
 @pytest.mark.parametrize('text,code,quantity', [

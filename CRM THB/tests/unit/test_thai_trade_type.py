@@ -1,6 +1,6 @@
 import pytest
 
-from domain.deal_policy import exchange_type
+from domain.deal_policy import TRADE_LABELS, baht_trade_type, exchange_type
 
 
 @pytest.mark.parametrize("receive,pay,expected", [
@@ -17,5 +17,18 @@ from domain.deal_policy import exchange_type
     ("THB_CASH", "THB_BANK", "conversion"),
     ("THB_BANK", "THB_CASH", "conversion"),
 ])
-def test_exchange_type_from_firm_perspective(receive, pay, expected):
+def test_historical_contract_codes_remain_stable(receive, pay, expected):
     assert exchange_type(receive, pay) == expected
+
+
+@pytest.mark.parametrize('receive,pay,kind,label', [
+    ('USDT','THB_CASH','sale','Продажа'),
+    ('EUR','THB_BANK','sale','Продажа'),
+    ('THB_CASH','USDT','purchase','Покупка'),
+    ('THB_BANK','RUB','purchase','Покупка'),
+    ('THB_CASH','THB_BANK','conversion','Конвертация'),
+    ('USD_WH','USDT','conversion','Конвертация'),
+])
+def test_business_labels_are_about_buying_and_selling_baht(receive,pay,kind,label):
+    assert baht_trade_type(receive,pay) == kind
+    assert TRADE_LABELS[kind] == label

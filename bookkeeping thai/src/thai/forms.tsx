@@ -43,7 +43,7 @@ export function OperationForms({specs,session}:{specs:FormSpec[];session:Session
 const subscribeHydration=()=>()=>{};
 const clientReady=()=>true;
 const serverReady=()=>false;
-export function ActionForm({spec,formId,className,submitLabel,onValuesChange,deriveValues,onBusyChange,onSuccess}:{spec:FormSpec;formId?:string;className?:string;submitLabel?:string;onValuesChange?:(values:Record<string,string>)=>void;deriveValues?:(values:Record<string,string>,changed:string)=>Record<string,string>;onBusyChange?:(busy:boolean)=>void;onSuccess?:(result:Record<string,unknown>)=>void}) {
+export function ActionForm({spec,formId,className,submitLabel,onValuesChange,deriveValues,onBusyChange,onSuccess}:{spec:FormSpec;formId?:string;className?:string;submitLabel?:string;onValuesChange?:(values:Record<string,string>)=>void;deriveValues?:(values:Record<string,string>,changed:string,phase:'input'|'blur')=>Record<string,string>;onBusyChange?:(busy:boolean)=>void;onSuccess?:(result:Record<string,unknown>)=>void}) {
   const hydrated=useSyncExternalStore(subscribeHydration,clientReady,serverReady);
   const router=useRouter();const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [success,setSuccess]=useState('');const [preview,setPreview]=useState(spec.shares?'Итоговые доли: Данияр 0%, ПЕ 50%, SkyEX 50%':'');const [commonEnabled,setCommonEnabled]=useState(true);const [equalEnabled,setEqualEnabled]=useState(false);
   const attempt=useRef<{source:string;body:Record<string,unknown>}|null>(null);const lock=useRef(false);
@@ -58,11 +58,11 @@ export function ActionForm({spec,formId,className,submitLabel,onValuesChange,der
     catch(err){setError(err instanceof Error?err.message:'Сеть недоступна. Повтор сохранит ключ операции.');}
     finally{lock.current=false;setBusy(false);onBusyChange?.(false);}
   }
-  function update(event:FormEvent<HTMLFormElement>){setSuccess('');
+  function update(event:FormEvent<HTMLFormElement>,phase:'input'|'blur'='input'){if(phase==='input')setSuccess('');
     const form=event.currentTarget;
     const values=Object.fromEntries([...new FormData(form).entries()].map(([key,value])=>[key,String(value)]));
     const changed=(event.target as HTMLInputElement|HTMLSelectElement).name??'';
-    for(const [name,value] of Object.entries(deriveValues?.(values,changed)??{})){
+    for(const [name,value] of Object.entries(deriveValues?.(values,changed,phase)??{})){
       const field=form.elements.namedItem(name);
       if(field instanceof HTMLInputElement||field instanceof HTMLSelectElement)field.value=value;
     }
@@ -84,5 +84,5 @@ export function ActionForm({spec,formId,className,submitLabel,onValuesChange,der
     }
     setPreview(expensePreview(finalValues));}
 
-  return <form id={formId} onSubmit={submit} onInput={update} method="post" action="/api/thai/unhydrated" className={`${styles.form} ${className??''}`}><fieldset className={styles.fields} disabled={!hydrated||busy}>{spec.shares&&<label><input type="checkbox" name="_use_common" disabled={equalEnabled} checked={commonEnabled} onChange={event=>setCommonEnabled(event.target.checked)}/>Общая касса</label>}{spec.fields.map(f=><label key={f.name}>{f.label}{f.options?<select name={f.name} required={f.required!==false} defaultValue={f.value??f.options[0]?.[0]}>{!f.required&&f.required===false&&<option value="">Не задано</option>}{f.options.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>:<input name={f.name} type={f.kind==='date'?'date':f.kind==='month'?'month':f.kind==='checkbox'?'checkbox':'text'} required={f.required!==false&&f.kind!=='checkbox'} inputMode={f.kind==='money'?'decimal':f.kind==='id'?'numeric':undefined} disabled={f.name.startsWith('shares.')&&(equalEnabled||(f.name==='shares.common'&&!commonEnabled))} defaultValue={f.value} readOnly={f.readOnly} autoComplete="off"/>}</label>)}<button disabled={busy||!!success}>{busy?'Провожу…':success?'Проведено':submitLabel??'Провести'}</button>{success&&<button type="button" onClick={()=>{attempt.current=null;setSuccess('');}}>Новая операция</button>}</fieldset>{preview&&<p className={styles.preview}>{preview}</p>}{error&&<p role="alert" className={styles.error}>{error}</p>}{success&&<p role="status" className={styles.success}>{success}</p>}</form>
+  return <form id={formId} onSubmit={submit} onInput={update} onBlur={event=>{if(deriveValues)update(event,'blur');}} method="post" action="/api/thai/unhydrated" className={`${styles.form} ${className??''}`}><fieldset className={styles.fields} disabled={!hydrated||busy}>{spec.shares&&<label><input type="checkbox" name="_use_common" disabled={equalEnabled} checked={commonEnabled} onChange={event=>setCommonEnabled(event.target.checked)}/>Общая касса</label>}{spec.fields.map(f=><label key={f.name}>{f.label}{f.options?<select name={f.name} required={f.required!==false} defaultValue={f.value??f.options[0]?.[0]}>{!f.required&&f.required===false&&<option value="">Не задано</option>}{f.options.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>:<input name={f.name} type={f.kind==='date'?'date':f.kind==='month'?'month':f.kind==='checkbox'?'checkbox':'text'} required={f.required!==false&&f.kind!=='checkbox'} inputMode={f.kind==='money'?'decimal':f.kind==='id'?'numeric':undefined} disabled={f.name.startsWith('shares.')&&(equalEnabled||(f.name==='shares.common'&&!commonEnabled))} defaultValue={f.value} readOnly={f.readOnly} autoComplete="off"/>}</label>)}<button disabled={busy||!!success}>{busy?'Провожу…':success?'Проведено':submitLabel??'Провести'}</button>{success&&<button type="button" onClick={()=>{attempt.current=null;setSuccess('');}}>Новая операция</button>}</fieldset>{preview&&<p className={styles.preview}>{preview}</p>}{error&&<p role="alert" className={styles.error}>{error}</p>}{success&&<p role="status" className={styles.success}>{success}</p>}</form>
 }

@@ -174,3 +174,8 @@ for(const [kind,receive,pay] of [['sale','USDT','THB_CASH'],['purchase','THB_CAS
 const {bestChangeForms}=load(path.join(root,'src/thai/form-specs.ts'));
 assert.deepEqual(bestChangeForms[0].fields.find(f=>f.name==='operation').options,[['purchase','Продажа батов'],['sale','Покупка батов']]);
 console.log('PASS: sale receives USDT/pays THB, purchase receives THB/pays USDT; BestChange labels retain financial codes.');
+
+const {bahtTradeType,operationLabel}=load(path.join(root,'src/thai/deals/model.ts'));
+assert.equal(operationLabel(bahtTradeType('USDT','THB_CASH')),'Продажа');
+assert.equal(operationLabel(bahtTradeType('THB_BANK','USDT')),'Покупка');
+assert.equal(bahtTradeType('THB_BANK','THB_CASH'),'conversion');

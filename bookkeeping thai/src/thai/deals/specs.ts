@@ -28,7 +28,7 @@ export function dealSpec(type:OperationType,clients:readonly ClientOption[],toda
     if(type==='sale'&&f.name==='pay.instrument')return {...f,options:instruments.slice(0,2),value:'THB_CASH'};
     return f;
   });
-  return {...createTrade,fields:[...fields,...(['sale','purchase'].includes(type)?counterpartyFields(counterparties):[]),comment],note:(type==='sale'?'Продаём баты: получаем другую валюту и выдаём THB. ':type==='purchase'?'Покупаем баты: получаем THB и выдаём другую валюту. ':'')+'Обмен на балансах проводится как команда бота: меняются кошельки клиента, карточки отправляются в Telegram. Фактический обмен в кассе создаёт заявку и проводится после подтверждения обеих сторон. Номер присваивается автоматически.'};
+  return {...createTrade,fields:[...fields,...(['sale','purchase'].includes(type)?counterpartyFields(counterparties):[]),comment],note:type==='sale'?'Продаём баты: получаем другую валюту и выдаём THB.':type==='purchase'?'Покупаем баты: получаем THB и выдаём другую валюту.':undefined};
 }
 
 export function counterpartyFields(clients:readonly ClientOption[],prefix='',attributes:Record<string,unknown>={}):Field[]{

@@ -146,7 +146,7 @@ async def test_best_change_correction_is_atomic_reuses_card_and_directly_credits
     commands=ThaiTelegramCommands(finance['app'],finance['config'])
     async def send(text,mid):
         return await commands.execute(telegram_user_id=12345,chat_id=-123,message_id=mid,text=text,effective_at=INSTANT)
-    text=await send('/бест продажа 100 35 36 бат',10)
+    text=await send('/бест покупка 100 35 36 бат',10)
     assert 'Валовый спред' in text and 'Доля Данияра' in text and 'RUB' not in text
     deal=await finance['app'].profit_queries.best_change_by_reference('tg:-123:10')
     before=await balance(finance,'USDT')
@@ -219,7 +219,7 @@ async def test_otpr_and_bestchange_router_restore_original_commands_and_callback
         assert (await finance['app'].trading_queries.payment_watch(watch_id))['status']=='STOPPED'
         buffer,_=await configure(finance)
         await fund(finance,instrument='USDT',quantity=Decimal('1000'))
-        bc=message.model_copy(update={'message_id':101,'text':'/бест продажа 100 35 36 безнал','reply_to_message':None}).as_(bot)
+        bc=message.model_copy(update={'message_id':101,'text':'/бест покупка 100 35 36 безнал','reply_to_message':None}).as_(bot)
         await router.message.handlers[0].callback(bc)
         assert 'THB безнал' in transport.send_message.call_args.args[1]
         assert 'Доля Данияра' in transport.send_message.call_args.args[1]

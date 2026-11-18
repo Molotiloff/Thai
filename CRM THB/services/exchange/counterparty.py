@@ -31,7 +31,7 @@ def counterparty_result(attributes, quotes, precision=6):
     with localcontext() as context:
         context.prec = 80
         rate = thb / usdt
-        # The UI operation names classify the opposite currency. Follow the
+        # Historical contract codes classify the opposite currency. Follow the
         # actual THB movement: pay THB => sell baht, receive THB => buy baht.
         company_rate = rate + spread if receives_thb else rate - spread
         if company_rate <= 0:

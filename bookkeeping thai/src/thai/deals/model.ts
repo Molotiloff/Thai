@@ -27,6 +27,11 @@ export interface Workspace {
   items:DealEntry[];board:DealEntry[];summaries:{status:string;count:number}[];next_cursor:string|null;
 }
 export function operationLabel(kind:string):string {return OPERATIONS.find(o=>o.type===kind)?.label??kind;}
+export function bahtTradeType(receive:unknown,pay:unknown):'sale'|'purchase'|'conversion' {
+  const receivesThb=['THB_CASH','THB_BANK'].includes(String(receive));
+  const paysThb=['THB_CASH','THB_BANK'].includes(String(pay));
+  return paysThb&&!receivesThb?'sale':receivesThb&&!paysThb?'purchase':'conversion';
+}
 export function instrumentLabel(code:unknown):string {return instruments.find(i=>i[0]===code)?.[1]??String(code??'');}
 export function entryDirection(entry:DealEntry):string {
   const a=entry.attributes;
