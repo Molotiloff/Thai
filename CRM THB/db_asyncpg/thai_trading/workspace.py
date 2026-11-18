@@ -22,9 +22,9 @@ WITH entries AS (
      CASE WHEN d.kind='manual_profit' THEN 'profit'
           WHEN d.kind IN ('best_change','deposit','withdrawal') THEN d.kind
           WHEN d.attributes->'receive'->>'instrument' IN {BASE_SQL}
-           AND d.attributes->'pay'->>'instrument' NOT IN {BASE_SQL} THEN 'sale'
+           AND d.attributes->'pay'->>'instrument' NOT IN {BASE_SQL} THEN 'purchase'
           WHEN d.attributes->'pay'->>'instrument' IN {BASE_SQL}
-           AND d.attributes->'receive'->>'instrument' NOT IN {BASE_SQL} THEN 'purchase'
+           AND d.attributes->'receive'->>'instrument' NOT IN {BASE_SQL} THEN 'sale'
           ELSE 'conversion' END AS kind,
      d.attributes, '/deals/'||d.id AS href
  FROM effective_deals d JOIN users u ON u.id=d.created_by

@@ -18,6 +18,8 @@ class Leg(BaseModel):
 
 
 class TradeRequest(DirectoryRequest):
+    counterparty_client_id: int | None = Field(None, gt=0)
+    counterparty_spread: StrictStr | None = None
     client_id: int | None = Field(None, gt=0)
     mode: str
     receive: Leg
@@ -56,6 +58,8 @@ class WatchRequest(DirectoryRequest):
 
 
 class CashRequestInput(DirectoryRequest):
+    counterparty_client_id: int | None = Field(None, gt=0)
+    counterparty_spread: StrictStr | None = None
     client_id: int = Field(gt=0)
     kind: str
     instrument: str | None = None
@@ -84,6 +88,8 @@ class CashRequestSettlement(PostRequest):
 
 
 class ExchangeReplacement(BaseModel):
+    counterparty_client_id: int | None = Field(None, gt=0)
+    counterparty_spread: StrictStr | None = None
     mode: str
     receive: Leg
     pay: Leg
@@ -97,6 +103,10 @@ class CorrectionRequest(PostRequest):
 
 
 def register_trading_routes(app, container, actor):
+    @app.get('/api/v1/deals/counterparties')
+    async def counterparties(user: int = Depends(actor)):
+        return response({'items': await container.trading_queries.counterparties()})
+
     @app.get('/api/v1/payment-watches/{watch_id}')
     async def payment_watch_detail(watch_id: int,user: int = Depends(actor)):
         return response(await container.trading_queries.payment_watch(watch_id))
@@ -137,7 +147,8 @@ def register_trading_routes(app, container, actor):
             parsed = ParsedRequest(cmd='', kind='dep' if payload.kind=='deposit' else 'wd', city='',
                 code=payload.instrument, amount_expr=payload.quantity,**contacts)
         result = await container.cash_requests.create_request(key=payload.idempotency_key, actor_id=user,
-            client_id=payload.client_id, parsed=parsed, client_name=client_name, creator_name=creator_name,quoted_rates=rates)
+            client_id=payload.client_id, parsed=parsed, client_name=client_name, creator_name=creator_name,quoted_rates=rates,
+            counterparty_client_id=payload.counterparty_client_id,counterparty_spread=payload.counterparty_spread)
         return response({'deal_id':result['id'], 'request_id':f"Б-{result['id']:06d}",
             'external_number':f"Б-{result['id']:06d}", 'status':result['effective_status']})
 
@@ -189,7 +200,8 @@ def register_trading_routes(app, container, actor):
         if payload.mode=='cash' and payload.client_id is not None:
             return await create_cash(CashRequestInput(idempotency_key=payload.idempotency_key,
                 client_id=payload.client_id,kind='cash_exchange',receive=payload.receive,pay=payload.pay,
-                comment=payload.comment),user)
+                comment=payload.comment,counterparty_client_id=payload.counterparty_client_id,
+                counterparty_spread=payload.counterparty_spread),user)
         if payload.mode=='wallet':
             now=payload.effective_at or datetime.now(UTC)
             previous=await container.trading_queries.exchange_by_reference(payload.idempotency_key)
@@ -202,7 +214,8 @@ def register_trading_routes(app, container, actor):
                 client_name=await container.pool.fetchval(
                     'SELECT p.name FROM clients c JOIN parties p ON p.id=c.party_id WHERE c.id=$1',payload.client_id),
                 actor_name=await container.pool.fetchval('SELECT display_name FROM users WHERE id=$1',user),
-                comment=payload.comment,profit_revision_id=payload.profit_revision_id)
+                comment=payload.comment,profit_revision_id=payload.profit_revision_id,
+                counterparty_client_id=payload.counterparty_client_id,counterparty_spread=payload.counterparty_spread)
             return response({'deal_id':context['root']['id'],'request_id':str(context['root']['id']),
                 'external_number':str(context['root']['id']),'operation_id':context['active']['operation_id'],
                 'status':context['active']['effective_status'],'notification_queued':True})
@@ -214,6 +227,7 @@ def register_trading_routes(app, container, actor):
                 receive=payload.receive.model_dump(),
                 pay=payload.pay.model_dump(),
                 external_reference=payload.external_reference,
+                counterparty_client_id=payload.counterparty_client_id,counterparty_spread=payload.counterparty_spread,
             )
         return response({**created,'request_id':str(created['deal_id']),'external_number':str(created['deal_id'])})
 
@@ -271,7 +285,7 @@ def register_trading_routes(app, container, actor):
         replacement = (
             None
             if payload.replacement is None
-            else payload.replacement.model_dump(include={"mode", "receive", "pay"})
+            else payload.replacement.model_dump(include={"mode", "receive", "pay", "counterparty_client_id", "counterparty_spread"})
         )
         return operation_response(
             await container.trading.reverse(

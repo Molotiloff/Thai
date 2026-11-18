@@ -491,7 +491,9 @@ def format_best_change_result(result: BestChangePostingResult | dict, *, include
     if isinstance(result,dict):
         row = result['active']
         c = row['attributes']['calculation']
-        operation = 'Продажа' if c['operation']=='sale' else 'Покупка'
+        from domain.deal_policy import TRADE_LABELS, baht_trade_type
+        operation = TRADE_LABELS[baht_trade_type(row['attributes']['receive']['instrument'],
+            row['attributes']['pay']['instrument'])] + ' батов'
         status = '✅ Сделка проведена' if row['active'] else '↩️ Сделка отменена'
         if not include_internal:
             receive,pay = row['attributes']['receive'],row['attributes']['pay']

@@ -9,37 +9,40 @@ import layout from './NewDealView.module.css';
 import styles from '@/thai/deals/deals.module.css';
 import {ActionForm} from '@/thai/forms';
 import {can,money,type Row,type Session} from '@/thai/types';
-import {OPERATIONS,calculateExchangeForm,instrumentLabel,type ExchangeAnchor,type OperationType} from '@/thai/deals/model';
+import {OPERATIONS,calculateCounterparty,calculateExchangeForm,instrumentLabel,type ExchangeAnchor,type ExchangeRateSource,type OperationType} from '@/thai/deals/model';
 import {dealSpec,type ClientOption} from '@/thai/deals/specs';
 const subscribe=()=>()=>{};
 const ready=()=>true;
 const notReady=()=>false;
 const initial:Record<string,string>={};
-export function NewDealView({clients,session,initialType='sale',today}:{clients:ClientOption[];session:Session;initialType?:OperationType;today?:string}){
+export function NewDealView({clients,counterparties=[],session,initialType='sale',today}:{clients:ClientOption[];counterparties?:ClientOption[];session:Session;initialType?:OperationType;today?:string}){
   const router=useRouter();const hydrated=useSyncExternalStore(subscribe,ready,notReady);
   const [type,setType]=useState<OperationType>(initialType);const [values,setValues]=useState(initial);const [busy,setBusy]=useState(false);const [submitted,setSubmitted]=useState(false);
   const [preview,setPreview]=useState<Row|null>(null);
-  const spec=dealSpec(type,clients,today);const permitted=can(session,spec.permission);
+  const spec=dealSpec(type,clients,today,counterparties);const permitted=can(session,spec.permission);
   const anchor=useRef<ExchangeAnchor>('receive');
+  const rateSource=useRef<ExchangeRateSource>('amounts');
   const isExchange=['sale','purchase','conversion'].includes(type);
   const selectedInstrument=(name:string)=>values[name]||spec.fields.find(field=>field.name===name)?.value||spec.fields.find(field=>field.name===name)?.options?.[0]?.[0]||'';
   if(isExchange)spec.fields=spec.fields.map(field=>field.name==='exchange.rate'?{...field,label:`Прямой курс: ${instrumentLabel(selectedInstrument('pay.instrument'))} за 1 ${instrumentLabel(selectedInstrument('receive.instrument'))}`}:
     field.name==='exchange.inverse_rate'?{...field,label:`Обратный курс: ${instrumentLabel(selectedInstrument('receive.instrument'))} за 1 ${instrumentLabel(selectedInstrument('pay.instrument'))}`}:field);
-  function deriveValues(current:Record<string,string>,changed:string){
-    const result=calculateExchangeForm(current,changed,anchor.current);anchor.current=result.anchor;return result.updates;
+  function deriveValues(current:Record<string,string>,changed:string,phase:'input'|'blur'){
+    const result=calculateExchangeForm(current,changed,anchor.current,phase,rateSource.current);
+    anchor.current=result.anchor;rateSource.current=result.rateSource;return result.updates;
   }
   useEffect(()=>{
     if(type!=='best_change')return;
     const controller=new AbortController();
     const timer=setTimeout(async()=>{
       try{
-        const response=await fetch('/api/thai/best-change/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:values.operation??'sale',quantity:values.quantity??'',market_rate:values.market_rate??'',client_rate:values.client_rate??''}),signal:controller.signal});
+        const response=await fetch('/api/thai/best-change/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:values.operation??'purchase',quantity:values.quantity??'',market_rate:values.market_rate??'',client_rate:values.client_rate??''}),signal:controller.signal});
         const data=await response.json();if(!controller.signal.aborted)setPreview(response.ok?data:null);
       }catch{if(!controller.signal.aborted)setPreview(null);}
     },250);
     return ()=>{clearTimeout(timer);controller.abort();};
   },[type,values]);
-  function change(next:OperationType){anchor.current='receive';setType(next);setValues(initial);setPreview(null);setSubmitted(false);}
+  function change(next:OperationType){anchor.current='receive';rateSource.current='amounts';setType(next);setValues(initial);setPreview(null);setSubmitted(false);}
+  const kt=calculateCounterparty({...Object.fromEntries(spec.fields.map(f=>[f.name,f.value??f.options?.[0]?.[0]??''])),...values});
   const calcRows:CalcRow[]=type==='profit'?[
     {label:'Прибыль / убыток USDT',text:money(values.amount_usdt)},
     {label:'Дата учёта',text:values.business_date||today||'Сегодня'},
@@ -55,7 +58,8 @@ export function NewDealView({clients,session,initialType='sale',today}:{clients:
     {label:'Получаем / переводим',text:money(values['receive.quantity']??values.quantity)},
     {label:'Выдаём',text:money(values['pay.quantity'])},
     ...(isExchange?[{label:'Прямой курс',text:values['exchange.rate']||'—'},{label:'Обратный курс',text:values['exchange.inverse_rate']||'—'},{label:'Номер заявки',text:'Присваивается автоматически'}]:[{label:'Комиссия перевода THB',text:money(values.fee??'0')}]),
-    {label:'Учёт в USDT',text:'Курс определяется по обменам'}
+    {label:'Учёт в USDT',text:'Курс определяется по обменам'},
+    ...(kt?[{label:'Начисление КТ USDT',text:kt.amount},{label:'Курс обменника THB за 1 USDT',text:kt.rate}]:[])
   ];
   return <><NewDealHeader formId="new-deal" disabled={!hydrated||busy||submitted||!permitted}/><DealTypeTabs active={type} onChange={change} disabled={!hydrated||busy}/><div className={layout.grid}>
     <DealDataCard title={OPERATIONS.find(o=>o.type===type)?.label??type} note={spec.note}>

@@ -205,7 +205,7 @@ class AcceptShortService:
             chat_id=chat_id,chat_name=chat_name,actor_name=actor_name)
 
     async def create_from_crm(self, *, client_id, receive, pay, common, client_name, actor_name,
-                              comment='', profit_revision_id=None):
+                              comment='', profit_revision_id=None, counterparty_client_id=None, counterparty_spread=None):
         accounts = await self._queries.accounts(client_id,receive['instrument'],pay['instrument'],'wallet')
         calc = ExchangeCalculator(base_codes=BASE_INSTRUMENTS).calculate(
             recv_code=receive['instrument'],pay_code=pay['instrument'],
@@ -217,10 +217,11 @@ class AcceptShortService:
             calc.pay_precision,calc.rate_text)
         return await self._create_accounting(parsed=parsed,client_id=client_id,common=common,
             chat_id=None,chat_name=client_name,actor_name=actor_name,receive=receive,pay=pay,
-            profit_revision_id=profit_revision_id)
+            profit_revision_id=profit_revision_id, counterparty_client_id=counterparty_client_id,
+            counterparty_spread=counterparty_spread)
 
     async def _create_accounting(self, *, parsed, client_id, common, chat_id, chat_name, actor_name,
-                                 receive=None, pay=None, profit_revision_id=None):
+                                 receive=None, pay=None, profit_revision_id=None, counterparty_client_id=None, counterparty_spread=None):
         presentation = self._presentation(parsed, client_name=chat_name or f'Клиент {client_id}',
             creator_name=actor_name, source_chat_id=chat_id)
         stored = await self._queries.exchange_by_reference(common['key'])
@@ -229,7 +230,8 @@ class AcceptShortService:
         deal_id = await self._trading.create_and_post(**common,client_id=client_id,
             receive=receive or {'instrument':parsed.recv_code,'quantity':parsed.recv_amount},
             pay=pay or {'instrument':parsed.pay_code,'quantity':parsed.pay_amount},
-            comment=parsed.user_note or '',presentation=presentation,profit_revision_id=profit_revision_id)
+            comment=parsed.user_note or '',presentation=presentation,profit_revision_id=profit_revision_id,
+            counterparty_client_id=counterparty_client_id,counterparty_spread=counterparty_spread)
         return await self.source_links.accounting_context(deal_id)
 
     async def edit_accounting(self, *, text, deal_id, common, actor_name):
@@ -240,7 +242,9 @@ class AcceptShortService:
         parsed = await self._parse_accounting(text,root['client_id'])
         return await self.correct_accounting(deal_id=deal_id,common=common,actor_name=actor_name,
             replacement={'mode':'wallet','receive':{'instrument':parsed.recv_code,'quantity':parsed.recv_amount},
-                'pay':{'instrument':parsed.pay_code,'quantity':parsed.pay_amount},'comment':parsed.user_note or ''},
+                'pay':{'instrument':parsed.pay_code,'quantity':parsed.pay_amount},'comment':parsed.user_note or '',
+                **{name:active['attributes'][name] for name in ('counterparty_client_id','counterparty_spread')
+                    if name in active['attributes']}},
             expected_deal_id=active['id'],reason='Редактирование обменной заявки в Telegram',parsed=parsed)
 
     async def correct_accounting(self, *, deal_id, common, actor_name, replacement, expected_deal_id,

@@ -66,8 +66,8 @@ console.log('PASS: deal lifecycle, cash requests/create/edit/settle, capital con
 
 
 const {calculateExchangeForm}=load(path.join(root,'src/thai/deals/model.ts'));
-function calculate(values,changed='exchange.rate',anchor='receive') {
-  return calculateExchangeForm({'receive.instrument':'USDT','pay.instrument':'USD_WH',...values},changed,anchor).updates;
+function calculate(values,changed='exchange.rate',anchor='receive',phase='input') {
+  return calculateExchangeForm({'receive.instrument':'USDT','pay.instrument':'USD_WH',...values},changed,anchor,phase).updates;
 }
 let calculated=calculate({'receive.quantity':'10000','exchange.rate':'0,96'});
 assert.equal(calculated['pay.quantity'],'9600.00');
@@ -76,7 +76,7 @@ assert.equal(calculate({'pay.quantity':'9600','exchange.rate':'0.96'})['receive.
 assert.equal(calculate({'receive.instrument':'THB_CASH','pay.instrument':'USDT','receive.quantity':'3500','exchange.inverse_rate':'35'},'exchange.inverse_rate')['pay.quantity'],'100.000000');
 assert.equal(calculate({'receive.instrument':'USD_WH','pay.instrument':'EUR','receive.quantity':'100','exchange.rate':'0.9'})['pay.quantity'],'90.00');
 assert.equal(calculate({'receive.quantity':'200','exchange.rate':'0.9'},'receive.quantity')['pay.quantity'],'180.00');
-assert.equal(calculate({'receive.quantity':'100','pay.quantity':'96'},'pay.quantity')['exchange.rate'],'0.96');
+assert.equal(calculate({'receive.quantity':'100','pay.quantity':'96'},'pay.quantity','receive','blur')['exchange.rate'],'0.96');
 assert.equal(calculate({'receive.quantity':'9007199254740993.01','exchange.rate':'1'})['pay.quantity'],'9007199254740993.01');
 assert.equal(calculate({'receive.quantity':'1','exchange.rate':'0.005'})['pay.quantity'],'0.01');
 assert.equal(calculate({'receive.quantity':'100','exchange.rate':'0'})['pay.quantity'],'');
@@ -110,3 +110,67 @@ assert.match(entryAmount(loss),/USDT/);
 assert.match(entryAmount(loss),/THB/);
 assert.match(entryDirection(loss),/USDT/);
 console.log('PASS: profit entry fields, optional client/THB/comment, accounting date and signed USDT display.');
+
+const {calculateCounterparty}=load(path.join(root,'src/thai/deals/model.ts'));
+const ktReceiveThb={'receive.instrument':'THB_CASH','receive.quantity':'33100','pay.instrument':'USDT','pay.quantity':'1000',counterparty_client_id:'42',counterparty_spread:'0,15'};
+assert.deepEqual(calculateCounterparty(ktReceiveThb),{amount:'4.531722',rate:'33.25'});
+assert.deepEqual(calculateCounterparty({...ktReceiveThb,'receive.instrument':'USDT','receive.quantity':'1000','pay.instrument':'THB_BANK','pay.quantity':'33100'}),{amount:'4.531722',rate:'32.95'});
+assert.equal(calculateCounterparty({...ktReceiveThb,counterparty_client_id:''}),null);
+assert.equal(calculateCounterparty({...ktReceiveThb,'receive.instrument':'USDT','receive.quantity':'1000','pay.instrument':'THB_CASH','pay.quantity':'33100',counterparty_spread:'34'}),null);
+const ktFields=dealSpec('sale',[],undefined,[['42','КТ чат']]).fields;
+assert.deepEqual(ktFields.find(f=>f.name==='counterparty_client_id').options,[['42','КТ чат']]);
+assert.equal(ktFields.find(f=>f.name==='counterparty_spread').required,false);
+assert.equal(dealSpec('conversion',[]).fields.some(f=>f.name==='counterparty_client_id'),false);
+console.log('PASS: counterparty sale/purchase spread, wallet precision, optional fields and invalid rate.');
+
+// Reproduce input/blur events across successive keystrokes, retaining rate provenance.
+for(const pair of [
+  {'receive.instrument':'USDT','pay.instrument':'THB_CASH','receive.quantity':'1000','pay.quantity':'33100'},
+  {'receive.instrument':'THB_BANK','pay.instrument':'USDT','receive.quantity':'33100','pay.quantity':'1000'},
+])for(const order of [['receive.quantity','pay.quantity'],['pay.quantity','receive.quantity']]){
+  const state={values:{'receive.instrument':pair['receive.instrument'],'pay.instrument':pair['pay.instrument']},anchor:'receive',rateSource:'amounts'};
+  function edit(name,value,phase='input'){
+    state.values[name]=value;
+    const result=calculateExchangeForm(state.values,name,state.anchor,phase,state.rateSource);
+    state.anchor=result.anchor;state.rateSource=result.rateSource;Object.assign(state.values,result.updates);
+    return result.updates;
+  }
+  const [first,second]=order;
+  edit(first,pair[first]);edit(first,pair[first],'blur');
+  for(let n=1;n<=pair[second].length;n++){
+    edit(second,pair[second].slice(0,n));
+    assert.equal(state.values[first],pair[first],'typing the second amount must preserve the first');
+    assert.equal(state.values[second],pair[second].slice(0,n));
+    assert.equal(state.values['exchange.rate'],'','infer the rate only after leaving the amount');
+  }
+  const committed=edit(second,pair[second],'blur');
+  assert.ok(state.values['exchange.rate']);assert.ok(state.values['exchange.inverse_rate']);
+  assert.equal(committed[first],undefined);assert.equal(committed[second],undefined);
+  const savedFirst=state.values[first];
+  edit(second,'2');edit(second,'2000');
+  assert.equal(state.values[first],savedFirst,'an inferred rate must not overwrite either amount on later edits');
+  edit(second,'2000','blur');assert.equal(state.values[first],savedFirst);
+  edit('exchange.rate','2');assert.equal(state.rateSource,'manual');
+  edit('receive.quantity','10');assert.equal(state.values['pay.quantity'],pair['pay.instrument']==='USDT'?'20.000000':'20.00');
+  edit('receive.quantity','');assert.equal(state.values['receive.quantity'],'');assert.equal(state.values['pay.quantity'],'');
+}
+assert.equal(calculate({'receive.quantity':'100','pay.quantity':'96'},'pay.quantity')['exchange.rate'],'');
+const amountsOnly=calculate({'receive.quantity':'100.00','pay.quantity':'96.00'},'pay.quantity','receive','blur');
+assert.equal(amountsOnly['exchange.rate'],'0.96');assert.equal(amountsOnly['exchange.inverse_rate'],'1.041666666666666667');
+assert.equal(amountsOnly['receive.quantity'],undefined);assert.equal(amountsOnly['pay.quantity'],undefined);
+console.log('PASS: manual amounts wait for blur, preserve both amounts and support either input order, repeated edits and explicit rates.');
+
+for(const [kind,receive,pay] of [['sale','USDT','THB_CASH'],['purchase','THB_CASH','USDT']]){
+  const spec=dealSpec(kind,[]);
+  const incoming=spec.fields.find(f=>f.name==='receive.instrument');
+  const outgoing=spec.fields.find(f=>f.name==='pay.instrument');
+  assert.equal(incoming.value,receive);assert.equal(outgoing.value,pay);
+  assert.ok(incoming.options.some(([code])=>code===receive));
+  assert.ok(outgoing.options.some(([code])=>code===pay));
+  assert.equal(incoming.options.some(([code])=>code===pay),false);
+  assert.equal(outgoing.options.some(([code])=>code===receive),false);
+  assert.match(spec.note,kind==='sale'?/Продаём баты/:/Покупаем баты/);
+}
+const {bestChangeForms}=load(path.join(root,'src/thai/form-specs.ts'));
+assert.deepEqual(bestChangeForms[0].fields.find(f=>f.name==='operation').options,[['purchase','Продажа батов'],['sale','Покупка батов']]);
+console.log('PASS: sale receives USDT/pays THB, purchase receives THB/pays USDT; BestChange labels retain financial codes.');

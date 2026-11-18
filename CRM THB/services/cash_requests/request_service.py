@@ -171,7 +171,7 @@ class CashRequestService:
             'pay':{'instrument':str(pay.currency),'quantity':str(pay.amount),'precision':pay.precision,'quoted_rate':None}}
 
     async def create_request(self, *, key, actor_id, client_id, parsed, client_name, creator_name,
-                             source_chat_id=None, quoted_rates=None):
+                             source_chat_id=None, quoted_rates=None, counterparty_client_id=None, counterparty_spread=None):
         if parsed.kind not in ('dep', 'wd','fx'):
             raise InvalidPosting('Ожидается заявка на внесение, выдачу или кассовый обмен')
         accounts = [{**row, 'currency_code':row['instrument_code']}
@@ -188,9 +188,18 @@ class CashRequestService:
                     currency = currencies[side]['currency']
                     quote = FxQuote(currency,decimal(rate),'units_per_usdt' if currency=='THB' else 'usdt_per_unit',payload[side]['instrument'])
                     payload[side]['quoted_rate'] = quote.quoted_rate
+        from services.exchange.counterparty import counterparty_attributes
+        if counterparty_client_id is not None or counterparty_spread is not None:
+            if parsed.kind != 'fx':
+                raise InvalidPosting('КТ доступен только в обменных заявках')
+            payload.update(counterparty_attributes(payload['receive'], payload['pay'],
+                counterparty_client_id, counterparty_spread))
         async def action(work):
             uow = cast(TradingUnitOfWork, work)
             await uow.clients.lock_client(client_id)
+            if counterparty_client_id is not None:
+                await uow.clients.lock_client(counterparty_client_id)
+                await uow.trades.counterparty(counterparty_client_id)
             attrs = {**payload, **({'precision':details.money.precision} if details.money else {}), 'revision':1, 'mode':'cash',
                 'client_name':client_name, 'creator_name':creator_name,
                 'pin_code':f'{randbelow(900)+100}-{randbelow(900)+100}'}

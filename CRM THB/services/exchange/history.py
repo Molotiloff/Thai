@@ -88,7 +88,7 @@ class ExchangeHistoryReplay:
                     attributes = row['deal']['attributes']
                     contract = attributes.get('contract', attributes)
                     replacement = {name: contract[name] for name in ('mode', 'receive', 'pay')}
-                    for name in ('comment', 'presentation'):
+                    for name in ('comment', 'presentation', 'counterparty_client_id', 'counterparty_spread'):
                         if name in attributes:
                             replacement[name] = attributes[name]
                     await self.trading.reverse(**common, deal_id=row['deal']['id'],

@@ -28,6 +28,7 @@ from services.accounting.fulfillment_models import (
 )
 from services.act_counter import AppliedExchangeMovement
 from services.crm.deal_service import DealCreateCommand, DealService, DealStatusCommand
+from services.exchange.counterparty import counterparty_attributes, counterparty_result
 from services.exchange.ledger import MissingMarketQuote, TradingReadPort, TradingUnitOfWork
 from services.finance.posting import CallbackDocument
 from services.metadata_commands import MetadataCommandService
@@ -299,9 +300,10 @@ class TradingService:
 
     async def create(
         self, *, key, actor_id, client_id, mode, receive, pay, external_reference=None, comment="",
-        operation_type=None, presentation=None, work=None,
+        operation_type=None, presentation=None, work=None, counterparty_client_id=None, counterparty_spread=None,
     ):
         attributes = await self._attributes(client_id, mode, receive, pay)
+        attributes.update(counterparty_attributes(receive, pay, counterparty_client_id, counterparty_spread))
         if operation_type is not None and operation_type != attributes["operation_type"]:
             raise InvalidPosting("Тип обмена не соответствует валютной паре")
         if comment:
@@ -312,8 +314,10 @@ class TradingService:
 
         async def action(work):
             uow = cast(TradingUnitOfWork, work)
-            if client_id is not None:
-                await uow.clients.lock_client(client_id)
+            for identity in sorted({identity for identity in (client_id, counterparty_client_id) if identity is not None}):
+                await uow.clients.lock_client(identity)
+            if counterparty_client_id is not None:
+                await uow.trades.counterparty(counterparty_client_id)
             return await uow.trades.create(actor_id, client_id, attributes, reference)
 
         return await self._commands.execute(
@@ -362,13 +366,15 @@ class TradingService:
         )
 
     async def create_and_post(self, *, key, actor_id, client_id, receive, pay,
-                              business_date, effective_at, presentation, comment='', profit_revision_id=None):
+                              business_date, effective_at, presentation, comment='', profit_revision_id=None,
+                              counterparty_client_id=None, counterparty_spread=None):
         """Bot and CRM client exchanges share one atomic application command."""
         async with self._factory() as work:
             await work.journal.lock_posting_period(profit_revision_id=profit_revision_id)
             created = await self.create(key=key+':draft',actor_id=actor_id,client_id=client_id,
                 mode='wallet',receive=receive,pay=pay,external_reference=key,
-                comment=comment,presentation=presentation,work=work)
+                comment=comment,presentation=presentation,work=work,
+                counterparty_client_id=counterparty_client_id,counterparty_spread=counterparty_spread)
             current = await cast(TradingUnitOfWork,work).trades.lock(created['deal_id'])
             if current['status'] in ('draft','ready'):
                 await self.ready(key=key+':ready',actor_id=actor_id,deal_id=current['id'],work=work)
@@ -409,10 +415,14 @@ class TradingService:
         )
         mode = attributes["mode"]
         field = "cash" if mode == "cash" else "wallet"
+        counterparty = None
+        if attributes.get('counterparty_client_id') is not None:
+            counterparty = await self._queries.counterparty(attributes['counterparty_client_id'])
         ids = tuple(
             sorted(
                 {accounts[side][field] for side in ("receive", "pay")}
                 | {accounts["trading_income"], accounts["trading_loss"]}
+                | ({counterparty["wallet"]} if counterparty else set())
             )
         )
         command = OperationCommand(
@@ -435,6 +445,9 @@ class TradingService:
             uow = cast(TradingUnitOfWork, work)
             if deal["client_id"] is not None:
                 await uow.clients.lock_client(deal["client_id"])
+            if counterparty is not None:
+                await uow.clients.lock_client(counterparty["id"])
+                await uow.trades.counterparty(counterparty["id"])
             locked = await uow.trades.lock(deal_id)
             if locked["status"] != "ready" or locked["attributes"] != attributes:
                 raise InvalidPosting("Провести можно только готовую неизменённую сделку")
@@ -543,7 +556,12 @@ class TradingService:
                         Valuation.CARRYING,
                     ),
                 )
-            prepared["result"] = incoming - outgoing
+            kt = counterparty_result(attributes, prepared, counterparty["precision"]) if counterparty else None
+            if kt is not None:
+                prepared['counterparty'] = {**kt, 'name': counterparty['name']}
+                lines += (JournalLine(counterparty['wallet'], 'USDT', Side.CREDIT,
+                    kt['amount_usdt'], kt['amount_usdt'], Valuation.CARRYING),)
+            prepared["result"] = incoming - outgoing - (kt['amount_usdt'] if kt else 0)
             return balance_with_fx(
                 lines,
                 income_account_id=accounts["trading_income"],
@@ -554,6 +572,8 @@ class TradingService:
             for source in dependency_operation_ids:
                 await uow.journal.add_dependency(source, operation_id)
             final = {**attributes, "contract": attributes, "result_usdt": prepared["result"]}
+            if "counterparty" in prepared:
+                final["counterparty"] = prepared["counterparty"]
             for side in ("receive", "pay"):
                 q = prepared[side]
                 final[side] = {
@@ -583,6 +603,8 @@ class TradingService:
             replacement_attributes = await self._attributes(
                 deal["client_id"], replacement["mode"], replacement["receive"], replacement["pay"]
             )
+            replacement_attributes.update(counterparty_attributes(replacement['receive'], replacement['pay'],
+                replacement.get('counterparty_client_id'), replacement.get('counterparty_spread')))
             if replacement.get("comment"):
                 replacement_attributes["comment"] = replacement["comment"]
             if replacement.get("presentation") is not None:
@@ -631,6 +653,8 @@ class TradingService:
         # The command describes the stable request; a retry must not target its own replacement.
         attributes = await self._attributes(context['root']['client_id'], replacement['mode'],
             replacement['receive'], replacement['pay'])
+        attributes.update(counterparty_attributes(replacement['receive'], replacement['pay'],
+            replacement.get('counterparty_client_id'), replacement.get('counterparty_spread')))
         for name in ('comment', 'presentation'):
             if name in replacement:
                 attributes[name] = replacement[name]
@@ -652,6 +676,9 @@ class TradingService:
                 replacement['receive']['instrument'], replacement['pay']['instrument'], replacement['mode'])
             field = 'wallet' if replacement['mode'] == 'wallet' else 'cash'
             extra_accounts = tuple(accounts[side][field] for side in ('receive', 'pay'))
+            if attributes.get('counterparty_client_id') is not None:
+                kt = await uow.trades.counterparty(attributes['counterparty_client_id'])
+                extra_accounts += (kt['wallet'],)
             original_operation, tail = await uow.history.tail(current['operation_id'], extra_accounts)
             ordering = original_operation['ordering']
             replay = ExchangeHistoryReplay(self, uow, key, actor_id, reason, profit_revision_id)

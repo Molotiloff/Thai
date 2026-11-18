@@ -1,7 +1,7 @@
 import {DealsView} from '@/components/deals/DealsView';
 import {NewDealView} from '@/components/deals/new/NewDealView';
-import {OPERATIONS,type Workspace} from '../deals/model';
-import type {ClientOption} from '../deals/specs';
+import {OPERATIONS,operationLabel,type Workspace} from '../deals/model';
+import {counterpartyFields,type ClientOption} from '../deals/specs';
 import {apiGet,session} from '../server';
 import {OperationForms} from '../forms';
 import {type FormSpec} from '../form-specs';
@@ -18,7 +18,8 @@ export async function NewDeal({searchParams}:{searchParams:Promise<Params>}){
  const clients:ClientOption[]=[];let after='';
  do {const data=await apiGet<Row>('/clients?limit=100'+(after?'&after_id='+after:''));clients.push(...rows(data.items).filter(c=>c.is_active).map(c=>[String(c.id),String(c.name)] as const));after=data.next_after_id?String(data.next_after_id):'';}while(after);
  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Bangkok'}).format(new Date());
- return <NewDealView clients={clients} session={await session()} initialType={type} today={today}/>;
+ const counterparties=rows((await apiGet<Row>('/deals/counterparties')).items).map(c=>[String(c.id),String(c.name)] as const);
+ return <NewDealView counterparties={counterparties} clients={clients} session={await session()} initialType={type} today={today}/>;
 }
 export async function DealDetail({params}:{params:Promise<{id:string}>}){
  const {id}=await params;const [data,user]=await Promise.all([apiGet<Row>('/deals/'+id),session()]);const attributes=data.attributes as Row;const incoming=attributes.receive as Row|undefined;const outgoing=attributes.pay as Row|undefined;
@@ -63,8 +64,9 @@ export async function DealDetail({params}:{params:Promise<{id:string}>}){
   }
   if(cashState==='draft'||cashState==='ready')actions.push({title:'Отменить заявку',path:`/deals/${id}/cancel`,permission:'deal.post',fields:[{name:'reason',label:'Причина'}]});
   const conditions=legs.map(leg=>({...leg,instrument:instruments.find(i=>i[0]===leg.instrument)?.[1]??leg.instrument,direction:leg.direction==='receive'?'Принимаем':'Выдаём',confirmed:confirmations.some(c=>c.direction===leg.direction)?'Подтверждено':cashState==='posted'?'Проведено':'Ожидается'}));
-  return <Page back={{href:"/deals",label:"Сделки"}} title={`Заявка ${requestId}`} subtitle={`${fx?'Кассовый обмен':data.kind==='deposit'?'Внесение':'Выдача'} · ${labels[cashState]??cashState}`}><Panel title="Условия"><Table data={conditions} columns={[{key:'direction',title:'Направление'},{key:'instrument',title:'Счёт'},{key:'quantity',title:'Сумма',amount:true},...(fx?[{key:'confirmed',title:'Подтверждение'}]:[])]}/><Table data={[attributes]} columns={[{key:'client_name',title:'Клиент'},{key:'contact1',title:'Основной контакт'},{key:'contact2',title:'Второй контакт'},{key:'pin_code',title:'Код'},{key:'comment',title:'Комментарий'}]}/></Panel><Panel title="Заявка и расчёт"><OperationForms session={user} specs={actions}/></Panel><Panel title="Документы"><Table data={[data]} columns={[{key:'client_id',title:'Клиент',href:'/clients/{client_id}'},{key:'operation_id',title:'Фактическая операция',href:'/operations/{operation_id}'}]}/></Panel></Page>;
+  return <Page back={{href:"/deals",label:"Сделки"}} title={`Заявка ${requestId}`} subtitle={`${fx?'Кассовый обмен · '+String(data.trade_label??'Обмен'):data.kind==='deposit'?'Внесение':'Выдача'} · ${labels[cashState]??cashState}`}><Panel title="Условия"><Table data={conditions} columns={[{key:'direction',title:'Направление'},{key:'instrument',title:'Счёт'},{key:'quantity',title:'Сумма',amount:true},...(fx?[{key:'confirmed',title:'Подтверждение'}]:[])]}/><Table data={[attributes]} columns={[{key:'client_name',title:'Клиент'},{key:'contact1',title:'Основной контакт'},{key:'contact2',title:'Второй контакт'},{key:'pin_code',title:'Код'},{key:'comment',title:'Комментарий'}]}/></Panel><CounterpartyDetails attributes={attributes}/><Panel title="Заявка и расчёт"><OperationForms session={user} specs={actions}/></Panel><Panel title="Документы"><Table data={[data]} columns={[{key:'client_id',title:'Клиент',href:'/clients/{client_id}'},{key:'operation_id',title:'Фактическая операция',href:'/operations/{operation_id}'}]}/></Panel></Page>;
  }
+ const counterparties=rows((await apiGet<Row>('/deals/counterparties')).items).map(c=>[String(c.id),String(c.name)] as const);
  const state=String(data.effective_status);const specs:FormSpec[]=[{title:'Отметить готовой',path:`/deals/${id}/ready`,permission:'deal.post',financial:false,fields:[]},{title:'Провести сделку',path:`/deals/${id}/post`,permission:'deal.post',fields:[{name:'business_date',label:'Дата учёта',kind:'date',required:false}]},{title:'Отменить сделку',path:data.kind==='best_change'?`/profit/operations/${data.operation_id}/reversal`:`/deals/${id}/cancel`,permission:'finance.reverse',fields:[{name:'reason',label:'Причина'},{name:'business_date',label:'Дата учёта',kind:'date',required:false}]}].filter((_,index)=>index===0?state==='draft':index===1?state==='ready':state!=='cancelled') as FormSpec[];
  if(data.kind==='fx_trade'&&state==='posted')specs.unshift({
   title:'Исправить обмен',path:`/deals/${id}/correction`,permission:'finance.reverse',
@@ -76,9 +78,20 @@ export async function DealDetail({params}:{params:Promise<{id:string}>}){
    {name:'replacement.receive.quantity',label:'Получаем: сумма',kind:'money',value:String(incoming?.quantity)},
    {name:'replacement.pay.instrument',label:'Выдаём: счёт',options:instruments,value:String(outgoing?.instrument)},
    {name:'replacement.pay.quantity',label:'Выдаём: сумма',kind:'money',value:String(outgoing?.quantity)},
+   ...(attributes.operation_type==='sale'||attributes.operation_type==='purchase'?counterpartyFields(counterparties,'replacement.',attributes):[]),
    {name:'replacement.comment',label:'Комментарий',required:false,value:String(attributes.comment??'')},
    {name:'reason',label:'Причина исправления'},
   ]
  });
- return <Page back={{href:"/deals",label:"Сделки"}} title={`Заявка #${data.request_id??id}`} subtitle={`Статус: ${labels[state]??state} · версия #${id}`}><Panel title="Условия"><Table data={[{...incoming,direction:'Получаем'},{...outgoing,direction:'Выдаём'}]} columns={[{key:'direction',title:'Направление'},{key:'instrument',title:'Счёт'},{key:'quantity',title:'Сумма',amount:true},{key:'quoted_rate',title:'Курс',amount:true}]}/></Panel><Panel title="Проведение и отмена"><OperationForms session={user} specs={specs}/></Panel><Panel title="Документы"><Table data={[data]} columns={[{key:'client_id',title:'Клиент',href:'/clients/{client_id}'},{key:'operation_id',title:'Операция',href:'/operations/{operation_id}'},{key:'replacement_deal_id',title:'Исправленная заявка',href:'/deals/{replacement_deal_id}'}]}/></Panel></Page>
+ return <Page back={{href:"/deals",label:"Сделки"}} title={`${data.trade_type?operationLabel(String(data.trade_type)):'Заявка'} #${data.request_id??id}`} subtitle={`Статус: ${labels[state]??state} · версия #${id}`}><Panel title="Условия"><Table data={[{...incoming,direction:'Получаем'},{...outgoing,direction:'Выдаём'}]} columns={[{key:'direction',title:'Направление'},{key:'instrument',title:'Счёт'},{key:'quantity',title:'Сумма',amount:true},{key:'quoted_rate',title:'Курс',amount:true}]}/></Panel><CounterpartyDetails attributes={attributes}/><Panel title="Проведение и отмена"><OperationForms session={user} specs={specs}/></Panel><Panel title="Документы"><Table data={[data]} columns={[{key:'client_id',title:'Клиент',href:'/clients/{client_id}'},{key:'operation_id',title:'Операция',href:'/operations/{operation_id}'},{key:'replacement_deal_id',title:'Исправленная заявка',href:'/deals/{replacement_deal_id}'}]}/></Panel></Page>
+}
+
+function CounterpartyDetails({attributes}:{attributes:Row}){
+ if(!attributes.counterparty_client_id)return null;
+ const kt=(attributes.counterparty??{}) as Row;
+ return <Panel title="Контрагент"><Table data={[{...kt,spread:attributes.counterparty_spread,client_id:attributes.counterparty_client_id,result_usdt:attributes.result_usdt}]} columns={[
+  {key:'name',title:'КТ (имя чата)'},{key:'client_id',title:'Клиент',href:'/clients/{client_id}'},
+  {key:'spread',title:'Спред THB за 1 USDT',amount:true},{key:'client_rate',title:'Курс сделки',amount:true},
+  {key:'company_rate',title:'Курс обменника',amount:true},{key:'amount_usdt',title:'Начисление КТ USDT',amount:true},
+  {key:'result_usdt',title:'Прибыль обменника USDT',amount:true}]}/></Panel>;
 }

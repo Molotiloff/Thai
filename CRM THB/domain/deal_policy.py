@@ -101,6 +101,11 @@ TRADE_LABELS = {"sale": "Продажа", "purchase": "Покупка", "convers
 
 
 def exchange_type(receive: str, pay: str, *, base_instruments=BASE_INSTRUMENTS) -> str:
+    """Historical contract code; keep stable for posted documents and retries.
+
+    Thai purchase/sale labels refer to baht, so presentation uses baht_trade_type.
+    The optional base_instruments is also used by the legacy RUB application.
+    """
     receive_is_base = receive.upper() in base_instruments
     pay_is_base = pay.upper() in base_instruments
     if receive_is_base and not pay_is_base:
@@ -108,4 +113,10 @@ def exchange_type(receive: str, pay: str, *, base_instruments=BASE_INSTRUMENTS) 
     if pay_is_base and not receive_is_base:
         return "purchase"
     return "conversion"
+
+
+def baht_trade_type(receive: str, pay: str) -> str:
+    """Business direction from actual legs, independent of stored legacy labels."""
+    legacy = exchange_type(receive, pay)
+    return {"sale": "purchase", "purchase": "sale", "conversion": "conversion"}[legacy]
 

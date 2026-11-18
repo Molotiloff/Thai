@@ -6,7 +6,7 @@ const day:Field={name:'business_date',label:'Дата учёта (Бангкок
 const quantity:Field={name:'quantity',label:'Сумма',kind:'money'};
 const instrument:Field={name:'instrument',label:'Валюта / счёт',options:instruments};
 const comment:Field={name:'comment',label:'Комментарий',required:false};
-export function dealSpec(type:OperationType,clients:readonly ClientOption[],today?:string):FormSpec{
+export function dealSpec(type:OperationType,clients:readonly ClientOption[],today?:string,counterparties:readonly ClientOption[]=[]):FormSpec{
   const client=(name='client_id',label='Клиент',required=true):Field=>({name,label,kind:'id',options:clients,required,value:''});
   if(type==='profit')return {title:'Прибыль',path:'/deals/profit',permission:'deal.post',
     fields:[{name:'amount_usdt',label:'Сумма USDT (минус — убыток)',kind:'money'},
@@ -22,11 +22,16 @@ export function dealSpec(type:OperationType,clients:readonly ClientOption[],toda
     if(f.name==='mode')return {...f,label:'Тип обмена',value:'wallet',options:[['wallet','Обмен на балансах клиента'],['cash','Фактический обмен в кассе']] as const};
     if(f.name==='receive.quoted_rate')return {name:'exchange.rate',label:'Прямой курс: выдаём за 1 получаем',kind:'money' as const,required:false,transient:true};
     if(f.name==='pay.quoted_rate')return {name:'exchange.inverse_rate',label:'Обратный курс: получаем за 1 выдаём',kind:'money' as const,required:false,transient:true};
-    if(type==='sale'&&f.name==='receive.instrument')return {...f,options:instruments.slice(0,2)};
-    if(type==='sale'&&f.name==='pay.instrument')return {...f,options:instruments.slice(2)};
-    if(type==='purchase'&&f.name==='receive.instrument')return {...f,options:instruments.slice(2),value:'USDT'};
-    if(type==='purchase'&&f.name==='pay.instrument')return {...f,options:instruments.slice(0,2),value:'THB_CASH'};
+    if(type==='purchase'&&f.name==='receive.instrument')return {...f,options:instruments.slice(0,2),value:'THB_CASH'};
+    if(type==='purchase'&&f.name==='pay.instrument')return {...f,options:instruments.slice(2),value:'USDT'};
+    if(type==='sale'&&f.name==='receive.instrument')return {...f,options:instruments.slice(2),value:'USDT'};
+    if(type==='sale'&&f.name==='pay.instrument')return {...f,options:instruments.slice(0,2),value:'THB_CASH'};
     return f;
   });
-  return {...createTrade,fields:[...fields,comment],note:'Обмен на балансах проводится как команда бота: меняются кошельки клиента, карточки отправляются в Telegram. Фактический обмен в кассе создаёт заявку и проводится после подтверждения обеих сторон. Номер присваивается автоматически.'};
+  return {...createTrade,fields:[...fields,...(['sale','purchase'].includes(type)?counterpartyFields(counterparties):[]),comment],note:(type==='sale'?'Продаём баты: получаем другую валюту и выдаём THB. ':type==='purchase'?'Покупаем баты: получаем THB и выдаём другую валюту. ':'')+'Обмен на балансах проводится как команда бота: меняются кошельки клиента, карточки отправляются в Telegram. Фактический обмен в кассе создаёт заявку и проводится после подтверждения обеих сторон. Номер присваивается автоматически.'};
+}
+
+export function counterpartyFields(clients:readonly ClientOption[],prefix='',attributes:Record<string,unknown>={}):Field[]{
+  return [{name:prefix+'counterparty_client_id',label:'КТ (имя чата)',kind:'id',options:clients,required:false,value:attributes.counterparty_client_id?String(attributes.counterparty_client_id):''},
+    {name:prefix+'counterparty_spread',label:'Прибыль КТ (THB за 1 USDT)',kind:'money',required:false,value:attributes.counterparty_spread?String(attributes.counterparty_spread):''}];
 }

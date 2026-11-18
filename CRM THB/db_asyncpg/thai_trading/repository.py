@@ -11,6 +11,10 @@ class TradingRepository:
     def __init__(self, connection: asyncpg.Connection):
         self._db = connection
 
+    async def counterparty(self, client_id):
+        from db_asyncpg.thai_trading.queries import TradingQueries
+        return await TradingQueries(self._db).counterparty(client_id)
+
     async def create(self, actor_id, client_id, attributes, external_reference, kind="fx_trade"):
         deal_id = await self._db.fetchval(
             """

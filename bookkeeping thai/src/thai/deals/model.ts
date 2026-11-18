@@ -47,6 +47,7 @@ export function timestamp(value:string):string {return new Intl.DateTimeFormat('
 
 type DecimalRatio={numerator:bigint;denominator:bigint};
 export type ExchangeAnchor='receive'|'pay';
+export type ExchangeRateSource='manual'|'amounts';
 function positiveDecimal(value:string|undefined):DecimalRatio|null {
   const text=(value??'').trim().replace(',','.');
   if(text.length>80||!/^\d+(?:\.\d*)?$/.test(text))return null;
@@ -60,17 +61,34 @@ function ratioText(numerator:bigint,denominator:bigint,precision:number,trim=fal
   const text=`${scaled/scale}.${String(scaled%scale).padStart(precision,'0')}`;
   return trim?text.replace(/\.?0+$/,''):text;
 }
-export function calculateExchangeForm(values:Record<string,string>,changed:string,anchor:ExchangeAnchor='receive') {
+export function calculateExchangeForm(values:Record<string,string>,changed:string,anchor:ExchangeAnchor='receive',phase:'input'|'blur'='input',rateSource:ExchangeRateSource='manual') {
   const updates:Record<string,string>={};
+  const result=()=>({anchor,updates,rateSource});
   if(changed==='receive.quantity')anchor='receive';
   if(changed==='pay.quantity')anchor='pay';
   if(changed==='receive.instrument'||changed==='pay.instrument') {
-    return {anchor,updates:{'exchange.rate':'','exchange.inverse_rate':'',[`${anchor==='receive'?'pay':'receive'}.quantity`]:''}};
+    return {anchor,rateSource:'amounts' as const,updates:{'exchange.rate':'','exchange.inverse_rate':'',[`${anchor==='receive'?'pay':'receive'}.quantity`]:''}};
   }
-  if(!['receive.quantity','pay.quantity','exchange.rate','exchange.inverse_rate'].includes(changed))return {anchor,updates};
+  if(!['receive.quantity','pay.quantity','exchange.rate','exchange.inverse_rate'].includes(changed))return result();
   const receive=positiveDecimal(values['receive.quantity']);
   const pay=positiveDecimal(values['pay.quantity']);
   let rate=positiveDecimal(values['exchange.rate']);
+  if(changed.endsWith('.quantity')&&(rateSource==='amounts'||!rate)) {
+    rateSource='amounts';
+    // Amounts are authoritative in this mode. Never feed the inferred rate
+    // back into the opposite amount, including when an amount is edited again.
+    if(phase==='blur'&&receive&&pay) {
+      updates['exchange.rate']=ratioText(pay.numerator*receive.denominator,pay.denominator*receive.numerator,18,true);
+      updates['exchange.inverse_rate']=ratioText(receive.numerator*pay.denominator,receive.denominator*pay.numerator,18,true);
+    }else{
+      updates['exchange.rate']='';updates['exchange.inverse_rate']='';
+    }
+    return result();
+  }
+  if(changed.startsWith('exchange.')) {
+    if(phase==='blur')return result();
+    rateSource='manual';
+  }
   if(changed==='exchange.inverse_rate') {
     const inverse=positiveDecimal(values['exchange.inverse_rate']);
     rate=inverse?{numerator:inverse.denominator,denominator:inverse.numerator}:null;
@@ -78,10 +96,13 @@ export function calculateExchangeForm(values:Record<string,string>,changed:strin
   if(changed.startsWith('exchange.')&&!rate) {
     updates[changed==='exchange.rate'?'exchange.inverse_rate':'exchange.rate']='';
     updates[`${anchor==='receive'?'pay':'receive'}.quantity`]='';
-    return {anchor,updates};
+    return result();
   }
-  if(!rate&&receive&&pay)rate={numerator:pay.numerator*receive.denominator,denominator:pay.denominator*receive.numerator};
-  if(!rate)return {anchor,updates};
+  if(!rate)return result();
+  if(changed.endsWith('.quantity')&&!(anchor==='receive'?receive:pay)) {
+    updates[`${anchor==='receive'?'pay':'receive'}.quantity`]='';
+    return result();
+  }
   if(changed!=='exchange.rate')updates['exchange.rate']=ratioText(rate.numerator,rate.denominator,18,true);
   if(changed!=='exchange.inverse_rate')updates['exchange.inverse_rate']=ratioText(rate.denominator,rate.numerator,18,true);
   if((anchor==='receive'&&receive)||!pay) {
@@ -89,5 +110,22 @@ export function calculateExchangeForm(values:Record<string,string>,changed:strin
       receive.denominator*rate.denominator,values['pay.instrument']==='USDT'?6:2);
   }else if(pay)updates['receive.quantity']=ratioText(pay.numerator*rate.denominator,
     pay.denominator*rate.numerator,values['receive.instrument']==='USDT'?6:2);
-  return {anchor,updates};
+  return result();
+}
+
+// Integer ratios preserve the same single HALF_UP rounding as the backend.
+export function calculateCounterparty(values:Record<string,string>):{amount:string;rate:string}|null {
+  if(!values.counterparty_client_id)return null;
+  const receivesThb=['THB_CASH','THB_BANK'].includes(values['receive.instrument'])&&values['pay.instrument']==='USDT';
+  const paysThb=['THB_CASH','THB_BANK'].includes(values['pay.instrument'])&&values['receive.instrument']==='USDT';
+  if(!receivesThb&&!paysThb)return null;
+  const thb=positiveDecimal(values[(receivesThb?'receive':'pay')+'.quantity']);
+  const usdt=positiveDecimal(values[(receivesThb?'pay':'receive')+'.quantity']);
+  const spread=positiveDecimal(values.counterparty_spread);
+  if(!thb||!usdt||!spread)return null;
+  const rn=thb.numerator*usdt.denominator,rd=thb.denominator*usdt.numerator;
+  const net=rn*spread.denominator+(receivesThb?1n:-1n)*spread.numerator*rd;
+  if(net<=0n)return null;
+  return {amount:ratioText(usdt.numerator*spread.numerator*rd,usdt.denominator*spread.denominator*rn,6),
+    rate:ratioText(net,rd*spread.denominator,8,true)};
 }
