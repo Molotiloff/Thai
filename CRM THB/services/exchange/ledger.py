@@ -8,8 +8,9 @@ from typing import Protocol
 
 from db_asyncpg.ports.ledger import TransactionRepositoryPort
 from domain.finance.models import InvalidPosting
+from services.accounting.ports import ProfitReadPort, ProfitUnitOfWork
 from services.act_counter import AppliedExchangeMovement
-from services.clients.ports import ClientUnitOfWork, WalletAuditReadPort
+from services.clients.ports import WalletAuditReadPort
 from services.finance.ports import CashAdjustmentReadPort
 
 
@@ -370,12 +371,14 @@ class TradingPort(Protocol):
 class TradingHistoryPort(Protocol):
     wallet_queries: WalletAuditReadPort
     cash_queries: CashAdjustmentReadPort
+    profit_queries: ProfitReadPort
 
     async def tail(self, operation_id: int, extra_accounts: tuple[int, ...]) -> tuple[dict, list[dict]]: ...
     async def exchange_revalued(self, deal_id: int, operation_id: int) -> None: ...
+    async def best_change_revalued(self, operation_id: int) -> None: ...
 
 
-class TradingUnitOfWork(ClientUnitOfWork, Protocol):
+class TradingUnitOfWork(ProfitUnitOfWork, Protocol):
     trades: TradingPort
     history: TradingHistoryPort
 

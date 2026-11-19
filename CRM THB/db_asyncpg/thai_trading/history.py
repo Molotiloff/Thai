@@ -4,6 +4,7 @@ import json
 
 from db_asyncpg.thai_clients.queries import ClientQueries
 from db_asyncpg.thai_finance.queries import FinanceQueries
+from db_asyncpg.thai_profit.queries import ProfitQueries
 from domain.finance.models import ReversalBlocked
 
 
@@ -12,6 +13,7 @@ class TradingHistoryRepository:
         self._db = connection
         self.wallet_queries = ClientQueries(connection)
         self.cash_queries = FinanceQueries(connection)
+        self.profit_queries = ProfitQueries(connection, connection=connection)
 
     async def exchange_revalued(self, deal_id, operation_id):
         await self._db.execute("""
@@ -60,11 +62,21 @@ class TradingHistoryRepository:
                 item['details'] = json.loads(row['command_details'])
                 item['dependencies'] = sorted(parents.get(row['id'], ()))
                 item['deal'] = None
-                if row['kind'] == 'fx_trade':
+                if row['kind'] in ('fx_trade', 'best_change'):
                     deal = await self._db.fetchrow('SELECT * FROM deals WHERE operation_id=$1', row['id'])
                     if deal:
                         item['deal'] = {**dict(deal), 'attributes': json.loads(deal['attributes'])}
+                        if row['kind'] == 'best_change':
+                            item['deal']['daniyar_account_id'] = await self._db.fetchval(
+                                'SELECT daniyar_wallet_account_id FROM best_change_calculations WHERE deal_id=$1', deal['id'])
                 result.append(item)
                 accounts.update(expand(row['accounts']))
                 affected.add(row['id'])
         return dict(original), result
+
+    async def best_change_revalued(self, operation_id):
+        deal_id = await self._db.fetchval('SELECT id FROM deals WHERE operation_id=$1', operation_id)
+        await self._db.execute("""
+            INSERT INTO telegram_outbox(event_key,event_type,payload)
+            VALUES ($1,'best_change.revalued',jsonb_build_object('deal_id',$2::bigint))
+        """, f'best-change:revalued:{operation_id}', deal_id)

@@ -284,6 +284,9 @@ class ThaiTelegramDelivery:
         if event.event_type == 'exchange.revalued':
             await self.deliver_exchange_request(payload['deal_id'], event=event, notify_act=False)
             return
+        if event.event_type == 'best_change.revalued':
+            await self.deliver_best_change(payload['deal_id'], refresh_only=True)
+            return
         if event.event_type=='payment.watch_changed':
             await self.deliver_payment_watch(payload['watch_id'])
             return
@@ -556,7 +559,7 @@ class ThaiTelegramDelivery:
             raise DeliveryError('wallet_adjustment_delivery_failed') from None
 
 
-    async def deliver_best_change(self,deal_id):
+    async def deliver_best_change(self,deal_id, *, refresh_only=False):
         from db_asyncpg.thai_profit.repository import ProfitRepository
         from handlers.best_change import format_best_change_profit, format_best_change_result
         context = await self._app.profit_queries.best_change_context(deal_id)
@@ -589,6 +592,8 @@ class ThaiTelegramDelivery:
                     current = await ProfitRepository(db).best_change_context(root)
                     purpose = 'best_change_profit' if chat_id in daniyar_chats else 'best_change'
                     link = await db.fetchrow("SELECT * FROM telegram_message_links WHERE deal_id=$1 AND chat_id=$2 AND purpose=$3",root,chat_id,purpose)
+                    if refresh_only and link is None:
+                        continue
                     await self._update_card(db,deal_id=root,chat_id=chat_id,
                         text=format_best_change_profit(current) if chat_id in daniyar_chats else format_best_change_result(current,include_internal=chat_id in buffer_chats or chat_id in (source_chat,self._operations_chat_id)),
                         markup=None,purpose=purpose,link=link,parse_mode=None)

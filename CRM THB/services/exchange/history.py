@@ -6,10 +6,13 @@ Business allocations which cannot be replayed safely remain explicit blockers.
 """
 
 import hashlib
-from dataclasses import replace
+from dataclasses import asdict, replace
 
+from domain.accounting_policy import calculate_best_change
 from domain.finance.models import ReversalBlocked, canonical_json, decimal
 from services.accounting.manual_cash_service import ManualCashService
+from services.accounting.profit_service import ProfitService
+from services.best_change.service import BestChangeLedgerService
 from services.clients.adjustments import WalletAdjustmentService
 from services.clients.conversions import WalletConversionService
 from services.clients.transfers import ClientWalletTransferService
@@ -63,6 +66,8 @@ class ExchangeHistoryReplay:
             supported = (
                 (row['kind'] == 'fx_trade' and deal and deal['kind'] == 'fx_trade'
                 and not details.get('settlement'))
+                or (row['kind'] == 'best_change' and deal and deal['kind'] == 'best_change'
+                and deal['attributes'].get('daniyar_settlement') == 'immediate')
                 or (row['kind'] in ('wallet_deposit', 'wallet_withdrawal')
                 and not any(details.get(field) for field in ('request_id', 'payment_watch_id')))
                 or row['kind'] == 'wallet_transfer'
@@ -75,6 +80,15 @@ class ExchangeHistoryReplay:
                     f"Пересчёт затрагивает операцию №{row['id']} ({row['kind']}) со связанным документом. "
                     'Нужна отдельная ревизия этого документа; исходная заявка не изменена.'
                 )
+            if row['kind'] == 'best_change':
+                # A valuation replay cannot renegotiate the trade, fee or partner share.
+                calculated = asdict(calculate_best_change(details['operation'], details['quantity'],
+                    details['market_rate'], details['client_rate']))
+                saved = deal['attributes']['calculation']
+                if any((saved.get(name) != value if name == 'operation'
+                        else name not in saved or decimal(saved[name]) != value)
+                       for name, value in calculated.items()):
+                    raise ReversalBlocked(f"Условия BestChange №{deal['id']} требуют отдельной ревизии")
 
     async def rewind(self, rows):
         original_outbox = self.work.outbox
@@ -84,7 +98,11 @@ class ExchangeHistoryReplay:
             for row in sorted(rows, key=lambda item: item['id'], reverse=True):
                 common = self.common(row, 'reverse')
                 reason = f"Пересчёт истории: {self.reason}"
-                if row['kind'] == 'fx_trade':
+                if row['kind'] == 'best_change':
+                    await ProfitService(self.trading._posting, self.trading._reversals,
+                        self.work.history.profit_queries).reverse(**common,
+                        operation_id=row['id'], reason=reason, work=self.work)
+                elif row['kind'] == 'fx_trade':
                     attributes = row['deal']['attributes']
                     contract = attributes.get('contract', attributes)
                     replacement = {name: contract[name] for name in ('mode', 'receive', 'pay')}
@@ -122,7 +140,19 @@ class ExchangeHistoryReplay:
                 dependencies = tuple(mapped for source in row['dependencies']
                     if (mapped := operation_ids.get(source, source)) is not None)
                 posting = HistoricalPosting(self.trading._posting, self.work, row, self.key, dependencies)
-                if row['kind'] == 'fx_trade':
+                if row['kind'] == 'best_change':
+                    bindings = await self.work.profit.bindings()
+                    if bindings['daniyar_balance']['ledger_account_id'] != row['deal']['daniyar_account_id']:
+                        raise ReversalBlocked('Получатель доли BestChange изменился; нужна отдельная ревизия')
+                    operation = await BestChangeLedgerService(posting,
+                        self.work.history.profit_queries, self.trading._queries).record(**common,
+                        operation=details['operation'], quantity=details['quantity'],
+                        market_rate=details['market_rate'], client_rate=details['client_rate'],
+                        thb_instrument=details['thb_instrument'], mode=details['mode'],
+                        client_id=details.get('client_id'), correction_of=row['deal']['id'],
+                        external_reference=common['key'], work=self.work)
+                    await self.work.history.best_change_revalued(operation.id)
+                elif row['kind'] == 'fx_trade':
                     deal_id = self.replacements[row['id']]
                     await self.work.trades.ready(deal_id)
                     operation = await self.trading.post(**common, deal_id=deal_id, work=self.work,

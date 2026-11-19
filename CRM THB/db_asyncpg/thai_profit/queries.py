@@ -4,8 +4,9 @@ from domain.finance.models import InvalidPosting
 
 
 class ProfitQueries:
-    def __init__(self, pool):
+    def __init__(self, pool, *, connection=None):
         self._pool = pool
+        self._connection = connection
 
     async def internal_quote(self,instrument,at=None,key=None):
         from db_asyncpg.internal_rates import InternalRates
@@ -40,6 +41,8 @@ class ProfitQueries:
         return dict(row)
 
     async def bindings(self):
+        if self._connection is not None:
+            return await ProfitRepository(self._connection).bindings()
         async with self._pool.acquire() as connection:
             return await ProfitRepository(connection).bindings()
 
