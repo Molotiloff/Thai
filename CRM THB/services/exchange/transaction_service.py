@@ -646,6 +646,51 @@ class TradingService:
             work=work,
         )
 
+    async def cancel(self, *, key, actor_id, deal_id, business_date, effective_at,
+                     reason, expected_deal_id=None, profit_revision_id=None):
+        """Remove an exchange at its historical date and atomically revalue its tail."""
+        if not reason.strip():
+            raise InvalidPosting('Причина отмены обязательна')
+        context = await self._queries.exchange_context(deal_id)
+        root_id = context['root']['id']
+        # Request timestamps do not change a historical cancellation or its retry.
+        payload = {'root_id':root_id, 'expected_deal_id':expected_deal_id,
+                   'reason':reason, 'profit_revision_id':profit_revision_id}
+
+        async def action(work):
+            uow = cast(TradingUnitOfWork, work)
+            from services.exchange.history import ExchangeHistoryReplay
+
+            await uow.journal.lock_posting_period(profit_revision_id=profit_revision_id)
+
+            async def validate_current(locked):
+                await locked.trades.lock(root_id)
+                current = await locked.trades.exchange_current(root_id)
+                if (current['status'] != 'posted' or current['id'] != context['active']['id']
+                    or (expected_deal_id is not None and current['id'] != expected_deal_id)):
+                    raise InvalidPosting('Заявка изменена или отменена; обновите карточку')
+                return current
+
+            current = await validate_current(uow)
+            await uow.trades.reversible(current['id'])
+            original, tail = await uow.history.tail(current['operation_id'], ())
+            replay = ExchangeHistoryReplay(self, uow, key, actor_id, reason, profit_revision_id)
+            replay.validate(tail)
+            await replay.rewind(tail)
+            reversed_operation = await self.reverse(key=key+':reversal', actor_id=actor_id,
+                deal_id=current['id'], business_date=original['business_date'],
+                effective_at=original['effective_at'], reason=reason, profit_revision_id=profit_revision_id,
+                work=uow, before_reverse=validate_current)
+            recalculated = await replay.replay(tail, original['id'], None)
+            return {'id':reversed_operation.id, 'deal_id':current['id'], 'request_id':root_id,
+                    'idempotency_key':reversed_operation.key, 'kind':'reversal',
+                    'business_date':original['business_date'].isoformat(), 'reversal_of_id':original['id'],
+                    'status':'cancelled', 'reversal_operation_id':reversed_operation.id,
+                    **({'recalculated_operations':recalculated} if recalculated else {})}
+
+        return await self._commands.execute(key=key, actor_id=actor_id, kind='trade_cancel',
+            payload=payload, action=action, permission='finance.reverse')
+
     async def correct(self, *, key, actor_id, deal_id, replacement, business_date, effective_at,
                       reason, expected_deal_id=None, profit_revision_id=None):
         context = await self._queries.exchange_context(deal_id)

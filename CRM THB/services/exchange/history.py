@@ -83,7 +83,7 @@ class ExchangeHistoryReplay:
             # Actual posting order is important for exact inventory snapshot reversal.
             for row in sorted(rows, key=lambda item: item['id'], reverse=True):
                 common = self.common(row, 'reverse')
-                reason = f"Пересчёт после исправления: {self.reason}"
+                reason = f"Пересчёт истории: {self.reason}"
                 if row['kind'] == 'fx_trade':
                     attributes = row['deal']['attributes']
                     contract = attributes.get('contract', attributes)
@@ -117,7 +117,10 @@ class ExchangeHistoryReplay:
             for row in rows:
                 common = self.common(row, 'post')
                 details = row['details']
-                dependencies = tuple(operation_ids.get(source, source) for source in row['dependencies'])
+                # Cancellation has no replacement source. Its valuation dependency
+                # disappears, while references to surviving/replayed sources remain.
+                dependencies = tuple(mapped for source in row['dependencies']
+                    if (mapped := operation_ids.get(source, source)) is not None)
                 posting = HistoricalPosting(self.trading._posting, self.work, row, self.key, dependencies)
                 if row['kind'] == 'fx_trade':
                     deal_id = self.replacements[row['id']]

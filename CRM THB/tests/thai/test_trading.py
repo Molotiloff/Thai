@@ -264,6 +264,10 @@ async def test_payment_watch_requires_matching_proof_and_posts_once(finance):
         await finance["app"].trading.reverse(
             **common(finance, "reverse"), deal_id=deal, reason="Actual refund required"
         )
+    with pytest.raises(ReversalBlocked):
+        await finance["app"].trading.cancel(
+            **common(finance, "historical-cancel"), deal_id=deal, reason="Actual refund required"
+        )
 
 
 async def test_database_quote_snapshots_and_closed_client_history(finance):

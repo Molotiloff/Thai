@@ -279,7 +279,8 @@ class AcceptShortService:
         if active['operation_id'] is None:
             await self._trading.cancel_draft(key=common['key'],actor_id=common['actor_id'],deal_id=active['id'],reason=reason)
         else:
-            await self._trading.reverse(**common,deal_id=active['id'],reason=reason)
+            await self._trading.cancel(**common,deal_id=active['id'],reason=reason,
+                expected_deal_id=expected_deal_id)
         return {'request_id':context['root']['id']}
 
     async def accounting_texts(self, context, *, accounts=None):

@@ -36,6 +36,7 @@ class PostRequest(CommandRequest):
 
 
 class CancelRequest(PostRequest):
+    expected_deal_id: int | None = Field(None, gt=0)
     reason: str = Field(min_length=1)
     replacement: TradeRequest | None = None
 
@@ -282,6 +283,10 @@ def register_trading_routes(app, container, actor):
                     reason=payload.reason,
                 )
             )
+        if deal['kind']=='fx_trade' and payload.replacement is None:
+            return response(await container.trading.cancel(**common(payload,user),deal_id=deal_id,
+                reason=payload.reason,expected_deal_id=payload.expected_deal_id,
+                profit_revision_id=payload.profit_revision_id))
         replacement = (
             None
             if payload.replacement is None
