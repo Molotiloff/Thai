@@ -293,6 +293,9 @@ class ThaiTelegramDelivery:
         if event.event_type=='cash.request_changed':
             await self.deliver_cash_request(payload['deal_id'])
             return
+        if event.event_type == 'expense.revalued':
+            await self.deliver_expense(payload['operation_id'], refresh_only=True)
+            return
         operation_id = payload["operation_id"]
         row = await self._app.pool.fetchrow(
             "SELECT kind,business_date,command_details FROM financial_operations WHERE id=$1",
@@ -406,22 +409,41 @@ class ThaiTelegramDelivery:
             raise DeliveryError("telegram_delivery_failed") from None
 
 
-    async def deliver_expense(self, operation_id):
+    async def deliver_expense(self, operation_id, *, refresh_only=False):
         try:
-            await self._deliver_expense(operation_id)
+            await self._deliver_expense(operation_id, refresh_only=refresh_only)
         except TelegramAPIError:
             raise DeliveryError("expense_delivery_failed") from None
 
-    async def _deliver_expense(self, operation_id):
+    async def _deliver_expense(self, operation_id, *, refresh_only=False):
         """Update each affected customer's own expense card; retries reuse its message link."""
+        # Technical valuation replacements keep the original Telegram card.
+        operation_id = await self._app.pool.fetchval("""
+            WITH RECURSIVE chain AS (
+                SELECT id,command_details FROM financial_operations WHERE id=$1
+                UNION ALL
+                SELECT o.id,o.command_details FROM financial_operations o JOIN chain c
+                    ON o.id=(c.command_details->>'replayed_from')::bigint
+                    WHERE c.command_details->>'historical_order' IS NOT NULL
+            ) SELECT min(id) FROM chain
+        """, operation_id)
+        current_operation_id = await self._app.pool.fetchval("""
+            WITH RECURSIVE chain AS (
+                SELECT id FROM financial_operations WHERE id=$1
+                UNION ALL
+                SELECT o.id FROM financial_operations o JOIN chain c
+                    ON (o.command_details->>'replayed_from')::bigint=c.id
+                    WHERE o.kind='expense'
+            ) SELECT max(id) FROM chain
+        """, operation_id)
         detail = await self._app.pool.fetchrow("""
             SELECT e.*,o.business_date,NOT EXISTS(SELECT 1 FROM active_financial_originals a WHERE a.id=o.id) AS cancelled
             FROM expenses e JOIN financial_operations o ON o.id=e.operation_id WHERE e.operation_id=$1
-        """, operation_id)
+        """, current_operation_id)
         rows = await self._app.pool.fetch("""
             SELECT x.*,c.telegram_chat_id FROM expense_wallet_entries x
                 JOIN client_chat_links c ON c.client_id=x.client_id AND c.is_active WHERE x.operation_id=$1
-        """, operation_id)
+        """, current_operation_id)
         for entry in rows:
             async with self._app.pool.acquire() as db, db.transaction():
                 await db.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", f"expense:{operation_id}:{entry['telegram_chat_id']}")
@@ -437,6 +459,8 @@ class ThaiTelegramDelivery:
                 balance = await db.fetchval("SELECT balance FROM posted_account_balances WHERE account_id=$1", entry['wallet_account_id'])
                 text += f"Баланс: {balance:f} USDT"
                 link = await db.fetchrow("SELECT * FROM telegram_message_links WHERE operation_id=$1 AND chat_id=$2 AND purpose='expense'", operation_id, entry['telegram_chat_id'])
+                if refresh_only and link is None:
+                    continue
                 await self._update_card(db, operation_id=operation_id, chat_id=entry['telegram_chat_id'],
                     text=text, markup=None, purpose='expense', link=link, parse_mode=None)
 
@@ -455,6 +479,8 @@ class ThaiTelegramDelivery:
                 if detail['comment']:
                     text += "\n" + detail['comment']
                 link = await db.fetchrow("SELECT * FROM telegram_message_links WHERE operation_id=$1 AND chat_id=$2 AND purpose='expense'",operation_id,operations_chat)
+                if refresh_only and link is None:
+                    return
                 await self._update_card(db,operation_id=operation_id,chat_id=operations_chat,text=text,
                     markup=None,purpose='expense',link=link,parse_mode=None)
 

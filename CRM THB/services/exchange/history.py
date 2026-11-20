@@ -17,6 +17,7 @@ from services.clients.adjustments import WalletAdjustmentService
 from services.clients.conversions import WalletConversionService
 from services.clients.transfers import ClientWalletTransferService
 from services.clients.wallets import WalletCashService
+from services.expenses.service import ExpenseService
 from services.finance.posting import CallbackDocument, CashTransferService
 
 
@@ -36,6 +37,15 @@ class HistoricalPosting:
         import json
 
         details = json.loads(command.details_json)
+        if command.kind == 'expense':
+            saved = self._original['details']
+            if (decimal(details['usdt_total']) != decimal(saved['usdt_total'])
+                or details['wallets'].keys() != saved['wallets'].keys()
+                or any(details['wallets'][code][field] != saved['wallets'][code][field]
+                    for code in details['wallets'] for field in ('client_id', 'wallet'))
+                or any(decimal(details['wallets'][code][field]) != decimal(saved['wallets'][code][field])
+                    for code in details['wallets'] for field in ('credit', 'debit'))):
+                raise ReversalBlocked('Условия компенсации расхода изменились; нужна отдельная ревизия')
         details.update(historical_order=self._original['ordering'],
                        replayed_from=self._original['id'], correction_key=self._key)
         command = replace(command, details_json=canonical_json(details))
@@ -70,6 +80,8 @@ class ExchangeHistoryReplay:
                 and deal['attributes'].get('daniyar_settlement') == 'immediate')
                 or (row['kind'] in ('wallet_deposit', 'wallet_withdrawal')
                 and not any(details.get(field) for field in ('request_id', 'payment_watch_id')))
+                or (row['kind'] == 'expense' and row.get('expense_id')
+                and details.get('settlement_version') == 2)
                 or row['kind'] == 'wallet_transfer'
                 or row['kind'] == 'wallet_conversion'
                 or row['kind'] == 'cash_transfer'
@@ -98,7 +110,11 @@ class ExchangeHistoryReplay:
             for row in sorted(rows, key=lambda item: item['id'], reverse=True):
                 common = self.common(row, 'reverse')
                 reason = f"Пересчёт истории: {self.reason}"
-                if row['kind'] == 'best_change':
+                if row['kind'] == 'expense':
+                    await ExpenseService(self.trading._posting, self.trading._reversals,
+                        self.work.history.expense_queries).reverse(**common,
+                        operation_id=row['id'], reason=reason, work=self.work)
+                elif row['kind'] == 'best_change':
                     await ProfitService(self.trading._posting, self.trading._reversals,
                         self.work.history.profit_queries).reverse(**common,
                         operation_id=row['id'], reason=reason, work=self.work)
@@ -140,7 +156,15 @@ class ExchangeHistoryReplay:
                 dependencies = tuple(mapped for source in row['dependencies']
                     if (mapped := operation_ids.get(source, source)) is not None)
                 posting = HistoricalPosting(self.trading._posting, self.work, row, self.key, dependencies)
-                if row['kind'] == 'best_change':
+                if row['kind'] == 'expense':
+                    operation = await ExpenseService(posting, self.trading._reversals,
+                        self.work.history.expense_queries).record(**common,
+                        category_id=details['category_id'], instrument=details['instrument'],
+                        amount=details['amount'], quoted_rate=details['rate'], payer=details['payer'],
+                        shares=details['shares'], equal_split=details.get('equal_split', False),
+                        comment=details.get('comment', ''), correction_of=row['expense_id'])
+                    await self.work.history.expense_revalued(row['id'])
+                elif row['kind'] == 'best_change':
                     bindings = await self.work.profit.bindings()
                     if bindings['daniyar_balance']['ledger_account_id'] != row['deal']['daniyar_account_id']:
                         raise ReversalBlocked('Получатель доли BestChange изменился; нужна отдельная ревизия')

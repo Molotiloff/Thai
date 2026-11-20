@@ -49,6 +49,7 @@ from services.clients.wallets import WalletCashService
 from services.crm.client_transfer_service import ClientTransferService
 from services.crm.client_transfer_workflow import ClientTransferWorkflow
 from services.exchange.accept_short_service import AcceptShortService
+from services.exchange.history import ExchangeHistoryReplay
 from services.exchange.source_link_service import ExchangeSourceLinkService
 from services.exchange.transaction_service import TradingService
 from services.expenses.service import ExpenseService
@@ -153,7 +154,8 @@ class ApplicationContainer:
 
         expense_queries = ExpenseQueries(pool)
         expenses = ExpenseService(
-            OperationPostingService(expense_uow), ReversalService(expense_uow), expense_queries, uow_factory=expense_uow
+            OperationPostingService(expense_uow), ReversalService(expense_uow), expense_queries, uow_factory=expense_uow,
+            history_replay=lambda work, key, actor, reason, revision: ExchangeHistoryReplay(trading, work, key, actor, reason, revision)
         )
 
         def profit_uow():

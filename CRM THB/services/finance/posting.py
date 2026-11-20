@@ -159,6 +159,9 @@ class ReversalService:
             return previous
         if prepare is not None:
             await prepare(uow)
+            # Historical preparation can reverse nested business documents. Restore
+            # this command's revision/period context before checking its source.
+            await uow.journal.guard(command, "finance.reverse")
         state = await uow.accounts.lock_state(command.accounts)
         await uow.journal.check_reversible(original, allow_business=prepare is not None)
         plan = PostingPlan(tuple(replace(line, side=line.side.opposite, quote=None,

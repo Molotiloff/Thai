@@ -661,6 +661,7 @@ class TradingService:
             uow = cast(TradingUnitOfWork, work)
             from services.exchange.history import ExchangeHistoryReplay
 
+            await uow.expenses.lock_history()
             await uow.journal.lock_posting_period(profit_revision_id=profit_revision_id)
 
             async def validate_current(locked):
@@ -711,6 +712,7 @@ class TradingService:
 
             # Same global valuation lock as ordinary postings: discover the full tail
             # before changing any account, and prevent a concurrent new dependency.
+            await uow.expenses.lock_history()
             await uow.journal.lock_posting_period(profit_revision_id=profit_revision_id)
             await uow.trades.lock(root_id)
             current = await uow.trades.exchange_current(root_id)

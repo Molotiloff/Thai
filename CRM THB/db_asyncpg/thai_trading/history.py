@@ -3,6 +3,7 @@
 import json
 
 from db_asyncpg.thai_clients.queries import ClientQueries
+from db_asyncpg.thai_expenses.queries import ExpenseQueries
 from db_asyncpg.thai_finance.queries import FinanceQueries
 from db_asyncpg.thai_profit.queries import ProfitQueries
 from domain.finance.models import ReversalBlocked
@@ -11,6 +12,7 @@ from domain.finance.models import ReversalBlocked
 class TradingHistoryRepository:
     def __init__(self, connection):
         self._db = connection
+        self.expense_queries = ExpenseQueries(connection)
         self.wallet_queries = ClientQueries(connection)
         self.cash_queries = FinanceQueries(connection)
         self.profit_queries = ProfitQueries(connection, connection=connection)
@@ -62,6 +64,7 @@ class TradingHistoryRepository:
                 item['details'] = json.loads(row['command_details'])
                 item['dependencies'] = sorted(parents.get(row['id'], ()))
                 item['deal'] = None
+                item['expense_id'] = await self._db.fetchval('SELECT id FROM expenses WHERE operation_id=$1', row['id']) if row['kind'] == 'expense' else None
                 if row['kind'] in ('fx_trade', 'best_change'):
                     deal = await self._db.fetchrow('SELECT * FROM deals WHERE operation_id=$1', row['id'])
                     if deal:
@@ -80,3 +83,9 @@ class TradingHistoryRepository:
             INSERT INTO telegram_outbox(event_key,event_type,payload)
             VALUES ($1,'best_change.revalued',jsonb_build_object('deal_id',$2::bigint))
         """, f'best-change:revalued:{operation_id}', deal_id)
+
+    async def expense_revalued(self, original_operation_id):
+        await self._db.execute("""
+            INSERT INTO telegram_outbox(event_key,event_type,payload)
+            VALUES ($1,'expense.revalued',jsonb_build_object('operation_id',$2::bigint))
+        """, f'expense:revalued:{original_operation_id}', original_operation_id)

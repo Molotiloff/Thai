@@ -6,6 +6,15 @@ class ExpenseRepository:
     def __init__(self, connection):
         self._db = connection
 
+    async def operation(self, operation_id):
+        row = await self._db.fetchrow("SELECT * FROM financial_operations WHERE id=$1 AND status='posted'", operation_id)
+        if row is None:
+            raise InvalidPosting("Проведённая операция не найдена")
+        return dict(row)
+
+    async def lock_history(self):
+        await self._db.execute("SELECT pg_advisory_xact_lock(740810,7)")
+
     async def guard(self, actor_id, permission):
         from db_asyncpg.thai_finance.repositories import JournalRepository
 

@@ -32,7 +32,7 @@ export function expenseBindingForms(clients:readonly(readonly[string,string])[],
 }
 export const expenseActions:FormSpec[]=[
   {title:'Закрыть выписку расходов',path:'/expense-periods/close',permission:'period.close',fields:[period]},
-  {title:'Отменить расход / погашение',path:'/expense-operations/{operation_id}/reversal',permission:'finance.reverse',fields:[id('operation_id','Номер операции'),reason,day]},
+  {title:'Отменить расход / погашение',path:'/expense-operations/{operation_id}/reversal',permission:'finance.reverse',note:'Отмена учитывается датой исходной операции. Себестоимость последующих движений и прибыль пересчитываются автоматически.',fields:[id('operation_id','Номер операции'),reason]},
 ];
 export const profitActions:FormSpec[]=[
   {title:'Закрыть прибыль месяца',path:'/profit/close',permission:'period.close',note:'После окончания месяца начисляются доли собственников. Доля Данияра уже зачислена при сделках. Кассовой выплаты при закрытии нет.',fields:[period]},

@@ -38,9 +38,10 @@ def month(period):
 
 
 class ExpenseService:
-    def __init__(self, posting, reversals, queries: ExpenseReadPort, *, uow_factory=None):
+    def __init__(self, posting, reversals, queries: ExpenseReadPort, *, uow_factory=None, history_replay=None):
         self._posting, self._reversals, self._queries = posting, reversals, queries
         self._factory = uow_factory
+        self._history_replay = history_replay
 
     async def bind_participant(self, *, key, actor_id, code, client_id):
         if code not in ("skyex", "pe"):
@@ -395,22 +396,46 @@ class ExpenseService:
         )
 
     async def reverse(
-        self, *, key, actor_id, operation_id, business_date, effective_at, reason, revision_id=None, profit_revision_id=None
+        self, *, key, actor_id, operation_id, business_date, effective_at, reason,
+        revision_id=None, profit_revision_id=None, work=None,
     ):
-        async def prepare(work):
-            await work.expenses.guard(actor_id, "expense.post")
-            await work.expenses.reversible(operation_id, business_date)
+        async def prepare(transaction):
+            await transaction.expenses.guard(actor_id, "expense.post")
+            await transaction.expenses.reversible(operation_id, business_date)
 
-        return await self._reversals.reverse(
-            original_id=operation_id,
-            key=key,
-            actor_id=actor_id,
-            business_date=business_date,
-            effective_at=effective_at,
-            reason=reason,
-            prepare=prepare,
-            details=revision_details({"expense_revision_id": revision_id}, profit_revision_id),
-        )
+        options = {"original_id": operation_id, "key": key, "actor_id": actor_id,
+            "business_date": business_date, "effective_at": effective_at, "reason": reason,
+            "prepare": prepare,
+            "details": revision_details({"expense_revision_id": revision_id}, profit_revision_id)}
+        # Caller-owned reversals are used while rewinding a historical tail.
+        if work is not None or self._history_replay is None:
+            return await self._reversals.reverse(**options, work=work)
+        if not reason.strip():
+            raise InvalidPosting("Причина отмены обязательна")
+
+        async with self._factory() as transaction:
+            await transaction.expenses.lock_history()
+            await transaction.journal.lock_posting_period(profit_revision_id=profit_revision_id)
+            await transaction.expenses.guard(actor_id, "expense.post")
+            original = await transaction.expenses.operation(operation_id)
+            replay = self._history_replay(transaction, key, actor_id, reason, profit_revision_id)
+            tail = None
+
+            async def rewind(locked):
+                nonlocal tail
+                await prepare(locked)
+                _, tail = await locked.history.tail(operation_id, ())
+                replay.validate(tail)
+                await replay.rewind(tail)
+
+            # The journal checks permissions, periods and the idempotency key
+            # before running prepare, so a retry never rewinds the history twice.
+            options.update(business_date=original['business_date'], effective_at=original['effective_at'], prepare=rewind)
+            result = await self._reversals.reverse(**options, work=transaction)
+            if tail is not None:
+                await replay.replay(tail, operation_id, None)
+            await transaction.commit()
+            return result
 
     async def close(self, *, key, actor_id, period, effective_at, revision_id=None, profit_revision_id=None):
         month(period)
