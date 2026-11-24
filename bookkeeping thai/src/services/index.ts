@@ -3,7 +3,6 @@ import type {
   IAttendanceService,
   IBalancesService,
   IChartDataService,
-  IClientsService,
   IDealsService,
   IExpensesService,
   IMainDashboardService,
@@ -18,7 +17,6 @@ import { MockChartDataService } from './ChartDataService';
 import { MockUserService } from './UserService';
 import { MockAccountingService } from './AccountingService';
 import { MockAttendanceService } from './AttendanceService';
-import { ClientsService } from './ClientsService';
 import { MockTurnoverService } from './TurnoverService';
 import { MockExpensesService } from './ExpensesService';
 import {
@@ -63,7 +61,6 @@ export const dealsService: IDealsService = api
   : new MockDealsService();
 export const chartDataService: IChartDataService = new MockChartDataService();
 export const userService: IUserService = api ? new ApiUserService(api) : new MockUserService();
-export const clientsService: IClientsService = new ClientsService();
 export const accountingService: IAccountingService = new MockAccountingService();
 export const attendanceService: IAttendanceService = new MockAttendanceService();
 export const balancesService: IBalancesService = new ApiBalancesService(api ?? createApiClient());

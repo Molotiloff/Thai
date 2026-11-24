@@ -1,5 +1,5 @@
 import { ClientsView } from '@/components/clients/ClientsView';
-import { clientsService } from '@/services';
+import { clientsService } from '@/services/ClientsService';
 import { session } from '@/thai/server';
 export default async function ClientsPage(){
  const [data,user]=await Promise.all([clientsService.getClientsPage(),session()]);

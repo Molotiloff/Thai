@@ -1,8 +1,6 @@
 import type { Client, ClientsPageData } from '@/types/clients';
 import { initialsOf } from '@/lib/avatar';
-import { cookies } from 'next/headers';
-import { apiGet, baseUrl, COOKIE } from '@/thai/server';
-import { ApiClient } from '@/api/httpClient';
+import { apiGet } from '@/thai/server';
 import type { IClientsService } from './interfaces';
 import { labels } from '@/thai/types';
 
@@ -32,11 +30,6 @@ export class ClientsService implements IClientsService {
   ]};
  }
  async getClientById(id:string):Promise<Client|null>{const data=await apiGet<{clients:Customer[]}>('/clients/workspace?client_id='+encodeURIComponent(id));return data.clients[0]?adaptClient(data.clients[0]):null;}
- async updateTelegramInviteLink(id:string,inviteLink:string|null):Promise<Client>{
-  const token=(await cookies()).get(COOKIE)?.value;
-  if(!token)throw new Error('Сессия входа истекла');
-  await new ApiClient({baseUrl:baseUrl(),getToken:()=>token}).request(`/clients/${encodeURIComponent(id)}/telegram-link`,{method:'PUT',body:JSON.stringify({invite_link:inviteLink,idempotency_key:crypto.randomUUID()})});
-  const client=await this.getClientById(id);if(!client)throw new Error('Клиент не найден');return client;
- }
 }
 
+export const clientsService = new ClientsService();

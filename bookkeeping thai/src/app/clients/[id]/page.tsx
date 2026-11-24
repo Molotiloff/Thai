@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { ClientsView } from '@/components/clients/ClientsView';
-import { clientsService } from '@/services';
+import { clientsService } from '@/services/ClientsService';
 import { session } from '@/thai/server';
 import { OperationForms } from '@/thai/forms';
 import { walletForms } from '@/thai/form-specs';
