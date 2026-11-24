@@ -1,4 +1,4 @@
-import {bestChangeForms,createTrade,type Field,type FormSpec} from '../form-specs';
+import {createTrade,type Field,type FormSpec} from '../form-specs';
 import {instruments} from '../types';
 import type {OperationType} from './model';
 export type ClientOption=readonly [string,string];
@@ -13,7 +13,6 @@ export function dealSpec(type:OperationType,clients:readonly ClientOption[],toda
       {...day,value:today},client('client_id','Клиент',false),
       {name:'thb_amount',label:'Количество батов',kind:'money',required:false},comment],
     note:'Укажите окончательную прибыль после комиссий или убыток со знаком минус. Касса и кошельки клиентов не меняются; количество батов сохраняется для справки.'};
-  if(type==='best_change')return {...bestChangeForms[0],fields:bestChangeForms[0].fields.map(f=>f.name==='client_id'?client('client_id','Клиент',false):f)};
   if(type==='deposit'||type==='withdrawal')return {title:type==='deposit'?'Заявка на внесение':'Заявка на выдачу',path:'/cash-requests',permission:'deal.post',financial:false,fields:[client(),{name:'kind',label:'Тип заявки',value:type,readOnly:true},instrument,quantity,{name:'contact1',label:type==='deposit'?'Принимает':'Выдаёт',required:false},{name:'contact2',label:'Второй контакт',required:false},comment],note:'Создаётся заявка. Деньги учитываются после готовности и фактического кассового расчёта.'};
   if(type==='client_transfer')return {title:'Перевод клиент → клиент',path:'/clients/transfers',permission:'finance.post',fields:[client('source_client_id','Отправитель'),client('target_client_id','Получатель'),instrument,quantity,day,comment],note:'Перевод между кошельками в одной валюте. Общая касса не меняется.'};
   if(type==='thb_transfer')return {title:'Наличный ↔ безналичный бат',path:'/wallet-transfers',permission:'finance.post',fields:[client(),{name:'source_instrument',label:'Со счёта',options:instruments.slice(0,2)},{name:'target_instrument',label:'На счёт',options:instruments.slice(0,2),value:'THB_BANK'},quantity,{name:'fee',label:'Комиссия THB',kind:'money',value:'0'},{name:'physical',label:'Также переместить деньги в кассе',kind:'checkbox'},day]};

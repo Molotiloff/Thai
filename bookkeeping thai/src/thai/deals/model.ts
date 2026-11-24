@@ -8,7 +8,6 @@ export const OPERATIONS = [
   {type:'client_transfer',label:'Перевод',icon:'repeat'},
   {type:'conversion',label:'Конвертация',icon:'repeat'},
   {type:'thb_transfer',label:'Нал / безнал',icon:'shuffle'},
-  {type:'best_change',label:'BestChange',icon:'coins'},
   {type:'profit',label:'Прибыль',icon:'income'},
 ] as const satisfies readonly {type:string;label:string;icon:IconName}[];
 export type OperationType=typeof OPERATIONS[number]['type'];
@@ -20,13 +19,13 @@ export const STATUSES = [
 ] as const satisfies readonly {code:string;label:string;tone:string;icon:IconName}[];
 export interface DealEntry {
   entry_id:string;deal_id:number|null;operation_id:number|null;client_id:number|null;
-  client_name:string;created_by:string;created_at:string;status:string;kind:OperationType;
+  client_name:string;created_by:string;created_at:string;status:string;kind:OperationType|'best_change';
   attributes:Row;href:string;
 }
 export interface Workspace {
   items:DealEntry[];board:DealEntry[];summaries:{status:string;count:number}[];next_cursor:string|null;
 }
-export function operationLabel(kind:string):string {return OPERATIONS.find(o=>o.type===kind)?.label??kind;}
+export function operationLabel(kind:string):string {return kind==='best_change'?'BestChange':OPERATIONS.find(o=>o.type===kind)?.label??kind;}
 export function bahtTradeType(receive:unknown,pay:unknown):'sale'|'purchase'|'conversion' {
   const receivesThb=['THB_CASH','THB_BANK'].includes(String(receive));
   const paysThb=['THB_CASH','THB_BANK'].includes(String(pay));

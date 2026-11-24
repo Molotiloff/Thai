@@ -1,5 +1,5 @@
 'use client';
-import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
+import {useRef,useState,useSyncExternalStore} from 'react';
 import {useRouter} from 'next/navigation';
 import {NewDealHeader} from './NewDealHeader';
 import {DealTypeTabs} from './DealTypeTabs';
@@ -8,7 +8,7 @@ import {AutoCalcCard,type CalcRow} from './AutoCalcCard';
 import layout from './NewDealView.module.css';
 import styles from '@/thai/deals/deals.module.css';
 import {ActionForm} from '@/thai/forms';
-import {can,money,type Row,type Session} from '@/thai/types';
+import {can,money,type Session} from '@/thai/types';
 import {OPERATIONS,calculateCounterparty,calculateExchangeForm,instrumentLabel,type ExchangeAnchor,type ExchangeRateSource,type OperationType} from '@/thai/deals/model';
 import {dealSpec,type ClientOption} from '@/thai/deals/specs';
 const subscribe=()=>()=>{};
@@ -18,7 +18,6 @@ const initial:Record<string,string>={};
 export function NewDealView({clients,counterparties=[],session,initialType='sale',today}:{clients:ClientOption[];counterparties?:ClientOption[];session:Session;initialType?:OperationType;today?:string}){
   const router=useRouter();const hydrated=useSyncExternalStore(subscribe,ready,notReady);
   const [type,setType]=useState<OperationType>(initialType);const [values,setValues]=useState(initial);const [busy,setBusy]=useState(false);const [submitted,setSubmitted]=useState(false);
-  const [preview,setPreview]=useState<Row|null>(null);
   const spec=dealSpec(type,clients,today,counterparties);const permitted=can(session,spec.permission);
   const anchor=useRef<ExchangeAnchor>('receive');
   const rateSource=useRef<ExchangeRateSource>('amounts');
@@ -30,30 +29,12 @@ export function NewDealView({clients,counterparties=[],session,initialType='sale
     const result=calculateExchangeForm(current,changed,anchor.current,phase,rateSource.current);
     anchor.current=result.anchor;rateSource.current=result.rateSource;return result.updates;
   }
-  useEffect(()=>{
-    if(type!=='best_change')return;
-    const controller=new AbortController();
-    const timer=setTimeout(async()=>{
-      try{
-        const response=await fetch('/api/thai/best-change/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:values.operation??'purchase',quantity:values.quantity??'',market_rate:values.market_rate??'',client_rate:values.client_rate??''}),signal:controller.signal});
-        const data=await response.json();if(!controller.signal.aborted)setPreview(response.ok?data:null);
-      }catch{if(!controller.signal.aborted)setPreview(null);}
-    },250);
-    return ()=>{clearTimeout(timer);controller.abort();};
-  },[type,values]);
-  function change(next:OperationType){anchor.current='receive';rateSource.current='amounts';setType(next);setValues(initial);setPreview(null);setSubmitted(false);}
+  function change(next:OperationType){anchor.current='receive';rateSource.current='amounts';setType(next);setValues(initial);setSubmitted(false);}
   const kt=calculateCounterparty({...Object.fromEntries(spec.fields.map(f=>[f.name,f.value??f.options?.[0]?.[0]??''])),...values});
   const calcRows:CalcRow[]=type==='profit'?[
     {label:'Прибыль / убыток USDT',text:money(values.amount_usdt)},
     {label:'Дата учёта',text:values.business_date||today||'Сегодня'},
     {label:'Количество батов',text:values.thb_amount?money(values.thb_amount):'Не указано'},
-  ]:type==='best_change'?[
-    {label:'Количество USDT',text:money(values.quantity)},
-    {label:'Сумма THB',text:money(preview?.thb_quantity)},
-    {label:'Спред USDT',text:money(preview?.gross_usdt)},
-    {label:'Комиссия BestChange USDT',text:money(preview?.fee_usdt)},
-    {label:'Данияр USDT',text:money(preview?.daniyar_usdt)},
-    {label:'Прибыль бизнеса USDT',text:money(preview?.business_usdt)}
   ]:[
     {label:'Получаем / переводим',text:money(values['receive.quantity']??values.quantity)},
     {label:'Выдаём',text:money(values['pay.quantity'])},
@@ -65,6 +46,6 @@ export function NewDealView({clients,counterparties=[],session,initialType='sale
     <DealDataCard title={OPERATIONS.find(o=>o.type===type)?.label??type} note={spec.note}>
       {permitted?<ActionForm key={type} spec={spec} formId="new-deal" className={styles.form} submitLabel="Добавить сделку" onValuesChange={setValues} deriveValues={isExchange?deriveValues:undefined} onBusyChange={setBusy} onSuccess={result=>{setSubmitted(true);router.push(result.deal_id?'/deals/'+result.deal_id:'/operations/'+result.id);}}/>:<p>Ваша роль позволяет просматривать сделки. Для проведения требуется право {spec.permission}.</p>}
     </DealDataCard>
-    <AutoCalcCard title={type==='profit'?'Результат сделки':undefined} rows={calcRows} note={type==='profit'?'Результат войдёт в отчёт прибыли за выбранный месяц. Никаких дополнительных комиссий или движений денег.':type==='best_change'?'Расчёт выполняет backend по тем же правилам, что применяются при проведении.':isExchange?undefined:'Кошелёк клиента может уходить в минус. Номер документа присваивается автоматически.'}/>
+    <AutoCalcCard title={type==='profit'?'Результат сделки':undefined} rows={calcRows} note={type==='profit'?'Результат войдёт в отчёт прибыли за выбранный месяц. Никаких дополнительных комиссий или движений денег.':isExchange?undefined:'Кошелёк клиента может уходить в минус. Номер документа присваивается автоматически.'}/>
   </div></>;
 }

@@ -1,3 +1,4 @@
+import {redirect} from 'next/navigation';
 import {DealsView} from '@/components/deals/DealsView';
 import {NewDealView} from '@/components/deals/new/NewDealView';
 import {OPERATIONS,operationLabel,type Workspace} from '../deals/model';
@@ -14,7 +15,9 @@ export default async function Deals({searchParams}:{searchParams:Promise<Params>
  return <DealsView data={data} query={query} status={status} kind={kind} limit={limit} canCreate={can(user,'deal.post')||can(user,'finance.post')}/>;
 }
 export async function NewDeal({searchParams}:{searchParams:Promise<Params>}){
- const q=await searchParams;const value=param(q,'type');const type=OPERATIONS.find(o=>o.type===value)?.type??'sale';
+ const q=await searchParams;const value=param(q,'type');
+ if(value==='best_change')redirect('/best-change');
+ const type=OPERATIONS.find(o=>o.type===value)?.type??'sale';
  const clients:ClientOption[]=[];let after='';
  do {const data=await apiGet<Row>('/clients?limit=100'+(after?'&after_id='+after:''));clients.push(...rows(data.items).filter(c=>c.is_active).map(c=>[String(c.id),String(c.name)] as const));after=data.next_after_id?String(data.next_after_id):'';}while(after);
  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Bangkok'}).format(new Date());
