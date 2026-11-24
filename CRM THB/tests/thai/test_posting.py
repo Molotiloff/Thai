@@ -220,6 +220,23 @@ async def test_finance_api_uses_decimal_strings_permissions_and_audit(finance):
         assert invalid.status_code == 422
         assert invalid.json()['error']['code'] == 'invalid_request'
 
+        cashier = await finance["pool"].fetchval(
+            "INSERT INTO users(display_name, telegram_user_id) VALUES ('Cashier', 23456) RETURNING id"
+        )
+        await finance["pool"].execute("INSERT INTO user_roles VALUES ($1, 'cashier')", cashier)
+        cashier_token = create_access_token(tg_user_id=23456, secret=secret, ttl_seconds=60)
+        cashier_headers = {"Authorization": f"Bearer {cashier_token}"}
+        assert (await client.get('/api/v1/finance/cash', headers=cashier_headers)).status_code == 200
+        denied_transfer = await client.post('/api/v1/finance/cash-transfers',
+            json={**payload, "idempotency_key": "cashier-transfer"}, headers=cashier_headers)
+        denied_reversal = await client.post(f'/api/v1/finance/operations/{transfer_response.json()["id"]}/reversal',
+            json={"idempotency_key": "cashier-reversal", "effective_at": INSTANT.isoformat(), "reason": "Test"},
+            headers=cashier_headers)
+        for denied in (denied_transfer, denied_reversal):
+            assert denied.status_code == 403
+            assert denied.json()['error']['code'] == 'permission_denied'
+        assert await finance["pool"].fetchval("SELECT count(*) FROM financial_operations") == 2
+
 
 async def test_accrual_can_make_client_balance_negative_without_cash_movement(finance):
     wallet = await finance['pool'].fetchval("""
