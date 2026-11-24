@@ -1,5 +1,5 @@
 import {participants,instruments} from './types';
-export interface Field {name:string;label:string;kind?:'id'|'date'|'month'|'money'|'text'|'checkbox';options?:readonly(readonly[string,string])[];required?:boolean;value?:string;readOnly?:boolean;transient?:boolean}
+export interface Field {name:string;label:string;kind?:'id'|'date'|'month'|'money'|'text'|'checkbox';options?:readonly(readonly[string,string])[];required?:boolean;searchable?:boolean;value?:string;readOnly?:boolean;transient?:boolean}
 export interface FormSpec {title:string;path:string;permission:string;fields:Field[];method?:'POST'|'PUT';financial?:boolean;shares?:boolean;note?:string}
 const id=(name:string,label:string):Field=>({name,label,kind:'id'});
 const amount=(name='quantity',label='Сумма'):Field=>({name,label,kind:'money'});

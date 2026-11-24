@@ -2,7 +2,7 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ApiClient, ApiError } from '@/api/httpClient';
-import type { Session } from './types';
+import {rows,type Row,type Session} from './types';
 export const COOKIE = 'thai_access_token';
 export function baseUrl(): string {
   const value=process.env.THAI_API_BASE_URL;
@@ -21,4 +21,15 @@ export function session(): Promise<Session> { return apiGet<Session>('/session')
 export async function optionalGet<T>(path: string): Promise<T | null> {
   try { return await apiGet<T>(path); }
   catch(error) { if (error instanceof ApiError && error.status===422 && typeof error.data==='object' && error.data!==null && 'error' in error.data && String((error.data as {error:{message?:string}}).error.message).includes('не найден')) return null; throw error; }
+}
+
+export async function activeClientOptions(): Promise<(readonly [string,string])[]> {
+  const clients:(readonly [string,string])[]=[];
+  let after='';
+  do {
+    const page=await apiGet<Row>('/clients?limit=100'+(after?'&after_id='+encodeURIComponent(after):''));
+    clients.push(...rows(page.items).filter(client=>client.is_active).map(client=>[String(client.id),String(client.name)] as const));
+    after=page.next_after_id?String(page.next_after_id):'';
+  } while(after);
+  return clients;
 }

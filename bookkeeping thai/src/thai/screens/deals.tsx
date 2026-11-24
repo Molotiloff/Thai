@@ -3,7 +3,7 @@ import {DealsView} from '@/components/deals/DealsView';
 import {NewDealView} from '@/components/deals/new/NewDealView';
 import {OPERATIONS,operationLabel,type Workspace} from '../deals/model';
 import {counterpartyFields,type ClientOption} from '../deals/specs';
-import {apiGet,session} from '../server';
+import {activeClientOptions,apiGet,session} from '../server';
 import {OperationForms} from '../forms';
 import {type FormSpec} from '../form-specs';
 import {can,instruments,labels,rows,type Row} from '../types';
@@ -18,8 +18,7 @@ export async function NewDeal({searchParams}:{searchParams:Promise<Params>}){
  const q=await searchParams;const value=param(q,'type');
  if(value==='best_change')redirect('/best-change');
  const type=OPERATIONS.find(o=>o.type===value)?.type??'sale';
- const clients:ClientOption[]=[];let after='';
- do {const data=await apiGet<Row>('/clients?limit=100'+(after?'&after_id='+after:''));clients.push(...rows(data.items).filter(c=>c.is_active).map(c=>[String(c.id),String(c.name)] as const));after=data.next_after_id?String(data.next_after_id):'';}while(after);
+ const clients=await activeClientOptions();
  const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Bangkok'}).format(new Date());
  const counterparties=rows((await apiGet<Row>('/deals/counterparties')).items).map(c=>[String(c.id),String(c.name)] as const);
  return <NewDealView counterparties={counterparties} clients={clients} session={await session()} initialType={type} today={today}/>;

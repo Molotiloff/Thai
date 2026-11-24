@@ -1,6 +1,7 @@
 'use client';
 import { useRef,useState,useSyncExternalStore,type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import {SearchableSelect} from '@/components/deals/new/SearchableSelect';
 import { Icon } from '@/components/ui/Icon';
 import { can,type Session } from './types';
 import styles from './thai.module.css';
@@ -58,10 +59,8 @@ export function ActionForm({spec,formId,className,submitLabel,onValuesChange,der
     catch(err){setError(err instanceof Error?err.message:'Сеть недоступна. Повтор сохранит ключ операции.');}
     finally{lock.current=false;setBusy(false);onBusyChange?.(false);}
   }
-  function update(event:FormEvent<HTMLFormElement>,phase:'input'|'blur'='input'){if(phase==='input')setSuccess('');
-    const form=event.currentTarget;
+  function update(form:HTMLFormElement,changed:string,phase:'input'|'blur'='input'){if(phase==='input')setSuccess('');
     const values=Object.fromEntries([...new FormData(form).entries()].map(([key,value])=>[key,String(value)]));
-    const changed=(event.target as HTMLInputElement|HTMLSelectElement).name??'';
     for(const [name,value] of Object.entries(deriveValues?.(values,changed,phase)??{})){
       const field=form.elements.namedItem(name);
       if(field instanceof HTMLInputElement||field instanceof HTMLSelectElement)field.value=value;
@@ -74,7 +73,7 @@ export function ActionForm({spec,formId,className,submitLabel,onValuesChange,der
       const field=form.elements.namedItem('shares.'+code);
       if(field instanceof HTMLInputElement)finalValues['shares.'+code]=field.value;
     }
-    const useCommon=changed==='_use_common'?(event.target as HTMLInputElement).checked:commonEnabled;
+    const useCommon=changed==='_use_common'?!!finalValues._use_common:commonEnabled;
     if(!useCommon)finalValues['shares.common']='0';
     const rateField=form.elements.namedItem('quoted_rate');
     if(rateField instanceof HTMLInputElement){
@@ -84,5 +83,5 @@ export function ActionForm({spec,formId,className,submitLabel,onValuesChange,der
     }
     setPreview(expensePreview(finalValues));}
 
-  return <form id={formId} onSubmit={submit} onInput={update} onBlur={event=>{if(deriveValues)update(event,'blur');}} method="post" action="/api/thai/unhydrated" className={`${styles.form} ${className??''}`}><fieldset className={styles.fields} disabled={!hydrated||busy}>{spec.shares&&<label><input type="checkbox" name="_use_common" disabled={equalEnabled} checked={commonEnabled} onChange={event=>setCommonEnabled(event.target.checked)}/>Общая касса</label>}{spec.fields.map(f=><label key={f.name}>{f.label}{f.options?<select name={f.name} required={f.required!==false} defaultValue={f.value??f.options[0]?.[0]}>{!f.required&&f.required===false&&<option value="">Не задано</option>}{f.options.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>:<input name={f.name} type={f.kind==='date'?'date':f.kind==='month'?'month':f.kind==='checkbox'?'checkbox':'text'} required={f.required!==false&&f.kind!=='checkbox'} inputMode={f.kind==='money'?'decimal':f.kind==='id'?'numeric':undefined} disabled={f.name.startsWith('shares.')&&(equalEnabled||(f.name==='shares.common'&&!commonEnabled))} defaultValue={f.value} readOnly={f.readOnly} autoComplete="off"/>}</label>)}<button disabled={busy||!!success}>{busy?'Провожу…':success?'Проведено':submitLabel??'Провести'}</button>{success&&<button type="button" onClick={()=>{attempt.current=null;setSuccess('');}}>Новая операция</button>}</fieldset>{preview&&<p className={styles.preview}>{preview}</p>}{error&&<p role="alert" className={styles.error}>{error}</p>}{success&&<p role="status" className={styles.success}>{success}</p>}</form>
+  return <form id={formId} onSubmit={submit} onInput={event=>{const target=event.target;if((target instanceof HTMLInputElement||target instanceof HTMLSelectElement)&&target.name)update(event.currentTarget,target.name);}} onBlur={event=>{const target=event.target;if(deriveValues&&(target instanceof HTMLInputElement||target instanceof HTMLSelectElement)&&target.name)update(event.currentTarget,target.name,'blur');}} method="post" action="/api/thai/unhydrated" className={`${styles.form} ${className??''}`}><fieldset className={styles.fields} disabled={!hydrated||busy}>{spec.shares&&<label><input type="checkbox" name="_use_common" disabled={equalEnabled} checked={commonEnabled} onChange={event=>setCommonEnabled(event.target.checked)}/>Общая касса</label>}{spec.fields.map(f=><label key={f.name}>{f.label}{f.searchable&&f.options?<SearchableSelect name={f.name} label={f.label} options={f.options} defaultValue={f.value} required={f.required!==false} onSelectionChange={form=>update(form,f.name)}/>:f.options?<select name={f.name} required={f.required!==false} defaultValue={f.value??f.options[0]?.[0]}>{!f.required&&f.required===false&&<option value="">Не задано</option>}{f.options.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>:<input name={f.name} type={f.kind==='date'?'date':f.kind==='month'?'month':f.kind==='checkbox'?'checkbox':'text'} required={f.required!==false&&f.kind!=='checkbox'} inputMode={f.kind==='money'?'decimal':f.kind==='id'?'numeric':undefined} disabled={f.name.startsWith('shares.')&&(equalEnabled||(f.name==='shares.common'&&!commonEnabled))} defaultValue={f.value} readOnly={f.readOnly} autoComplete="off"/>}</label>)}<button disabled={busy||!!success}>{busy?'Провожу…':success?'Проведено':submitLabel??'Провести'}</button>{success&&<button type="button" onClick={()=>{attempt.current=null;setSuccess('');}}>Новая операция</button>}</fieldset>{preview&&<p className={styles.preview}>{preview}</p>}{error&&<p role="alert" className={styles.error}>{error}</p>}{success&&<p role="status" className={styles.success}>{success}</p>}</form>
 }

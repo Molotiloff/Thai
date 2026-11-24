@@ -97,3 +97,43 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
+
+.search {
+  position: relative;
+  display: block;
+}
+
+.search > input {
+  width: 100%;
+}
+
+.suggestions {
+  position: absolute;
+  z-index: 2;
+  inset: calc(100% + 4px) 0 auto;
+  max-height: 230px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.suggestion {
+  display: block;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.suggestion[role="option"] {
+  cursor: pointer;
+}
+
+.suggestion[role="option"]:hover,
+.suggestion[aria-selected="true"] {
+  background: var(--surface-raised, var(--border));
+}
+
+.suggestion small {
+  color: var(--text-secondary);
+}

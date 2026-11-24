@@ -7,7 +7,7 @@ const quantity:Field={name:'quantity',label:'Сумма',kind:'money'};
 const instrument:Field={name:'instrument',label:'Валюта / счёт',options:instruments};
 const comment:Field={name:'comment',label:'Комментарий',required:false};
 export function dealSpec(type:OperationType,clients:readonly ClientOption[],today?:string,counterparties:readonly ClientOption[]=[]):FormSpec{
-  const client=(name='client_id',label='Клиент',required=true):Field=>({name,label,kind:'id',options:clients,required,value:''});
+  const client=(name='client_id',label='Клиент',required=true):Field=>({name,label,kind:'id',options:clients,searchable:true,required,value:''});
   if(type==='profit')return {title:'Прибыль',path:'/deals/profit',permission:'deal.post',
     fields:[{name:'amount_usdt',label:'Сумма USDT (минус — убыток)',kind:'money'},
       {...day,value:today},client('client_id','Клиент',false),
@@ -27,7 +27,7 @@ export function dealSpec(type:OperationType,clients:readonly ClientOption[],toda
     if(type==='sale'&&f.name==='pay.instrument')return {...f,options:instruments.slice(0,2),value:'THB_CASH'};
     return f;
   });
-  return {...createTrade,fields:[...fields,...(['sale','purchase'].includes(type)?counterpartyFields(counterparties):[]),comment],note:type==='sale'?'Продаём баты: получаем другую валюту и выдаём THB.':type==='purchase'?'Покупаем баты: получаем THB и выдаём другую валюту.':undefined};
+  return {...createTrade,fields:[...fields,...(['sale','purchase'].includes(type)?counterpartyFields(counterparties).map(field=>field.kind==='id'?{...field,searchable:true}:field):[]),comment],note:type==='sale'?'Продаём баты: получаем другую валюту и выдаём THB.':type==='purchase'?'Покупаем баты: получаем THB и выдаём другую валюту.':undefined};
 }
 
 export function counterpartyFields(clients:readonly ClientOption[],prefix='',attributes:Record<string,unknown>={}):Field[]{
