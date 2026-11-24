@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, StrictStr
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.auth import AuthError, decode_access_token
-from api.thai_common import business_day, operation_response, response
+from api.thai_common import ThaiErrorResponse, business_day, operation_response, response
 from app.container import ApplicationContainer
 from config import Config
 from db_asyncpg.migrator import AlembicMigrator
@@ -53,7 +53,8 @@ def create_thai_finance_api(*, container: ApplicationContainer, jwt_secret: str,
         await container.initialize_business_chats()
         yield
 
-    app = FastAPI(title="Thai CRM financial API", version="0.9.0", lifespan=lifespan)
+    app = FastAPI(title="Thai CRM financial API", version="0.9.0", lifespan=lifespan,
+                  responses={422: {"model": ThaiErrorResponse, "description": "Thai request or posting error"}})
     app.state.container = container
 
     @app.get('/health/live',include_in_schema=False)

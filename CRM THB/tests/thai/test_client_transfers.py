@@ -298,7 +298,7 @@ async def test_transfer_router_selects_confirms_and_supports_receipt_reply(finan
     from unittest.mock import AsyncMock
 
     from aiogram import Bot
-    from aiogram.types import CallbackQuery, Chat, Message, User
+    from aiogram.types import CallbackQuery, Chat, Message, PhotoSize, User
 
     from app.setup_handlers import create_router
     from app.thai_telegram import ThaiTelegramCommands
@@ -335,6 +335,15 @@ async def test_transfer_router_selects_confirms_and_supports_receipt_reply(finan
         assert (await wallets(finance,source,'USDT'))==(-Decimal('1.125'),-Decimal('1.125'))
         assert photos.await_count==2
         receipt=Message(message_id=910,date=INSTANT,chat=chat,from_user=User(id=telegram.id,is_bot=True,first_name='Bot'))
+        copied_receipt = receipt.model_copy(update={'message_id':990,
+            'caption':'Перевод #1','photo':[PhotoSize(file_id='photo',file_unique_id='photo',width=1,height=1)]})
+        for mid, invalid_receipt in ((103, copied_receipt), (104, receipt.model_copy(update={'from_user':user}))):
+            forged_edit = message.model_copy(update={'message_id':mid,'text':'/перевод 2',
+                'reply_to_message':invalid_receipt}).as_(telegram)
+            await router.message.handlers[0].callback(forged_edit)
+            assert 'Ответьте на оригинальный чек' in answers.call_args.args[0]
+        assert (await wallets(finance,source,'USDT'))==(-Decimal('1.125'),-Decimal('1.125'))
+        assert photos.await_count==2
         edit=message.model_copy(update={'message_id':101,'text':'/перевод 2','reply_to_message':receipt}).as_(telegram)
         # New sends need unique message IDs in each chat.
         photos.return_value=SimpleNamespace(message_id=911)

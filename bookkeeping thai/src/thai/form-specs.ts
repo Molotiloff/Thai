@@ -23,8 +23,8 @@ export function capitalForms(agreement:string):FormSpec[] {return [
 ]}
 export const agreementForm:FormSpec={title:'Новый инвестор',path:'/capital/agreements',permission:'terms.manage',fields:[{name:'name',label:'Имя инвестора'},amount('monthly_interest_percent','Процент в месяц'),day]};
 export function expenseForm(categories:readonly(readonly[string,string])[]):FormSpec {return {title:'Новый расход',path:'/expenses',permission:'expense.post',shares:true,note:'Личная оплата зачисляется на USDT-кошелёк плательщика полностью. Доля Данияра сразу удерживается в USDT. Общая доля делится между ПЕ и SkyEX поровну.',fields:[{name:'category_id',label:'Категория',kind:'id',options:categories},instr,amount('amount','Сумма расхода'),{...rate,required:true},{name:'equal_split',label:'Поровну на троих: SkyEX, ПЕ, Данияр',kind:'checkbox'},{name:'payer',label:'Кто платит',options:participants},...(['daniyar','pe','skyex','common'] as const).map((code)=>({name:`shares.${code}`,label:(code==='common'?'Общая касса':participants.find(p=>p[0]===code)?.[1])+' %',kind:'money' as const,value:code==='common'?'100':'0'})),day,{name:'comment',label:'Комментарий',required:false}]}}
-export function expenseBindingForms(clients:readonly(readonly[string,string])[],participantsData:readonly {code:unknown;client_id?:unknown}[]):FormSpec[] {
- return ['skyex','pe'].filter(code=>!participantsData.find(p=>p.code===code)?.client_id).map(code=>({
+export function expenseBindingForms(clients:readonly(readonly[string,string])[],unbound:readonly ('skyex'|'pe')[]):FormSpec[] {
+ return unbound.map(code=>({
   title:`Кошелёк ${code==='skyex'?'SkyEX':'ПЕ'} для расходов`,path:`/expenses/participants/${code}/binding`,permission:'expense.post',financial:false,
   note:'Выберите существующего клиента группы Партнер. Начисления расходов будут поступать в его USDT-кошелёк.',
   fields:[{name:'client_id',label:'Клиент группы Партнер',kind:'id',options:clients}],

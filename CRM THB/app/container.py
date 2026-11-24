@@ -139,11 +139,20 @@ class ApplicationContainer:
 
         wallets = WalletCashService(OperationPostingService(trading_uow), client_queries)
         trading_queries = TradingQueries(pool)
+        trading_posting = OperationPostingService(trading_uow)
+        trading_reversals = ReversalService(trading_uow)
+
+        def history_replay(work, key, actor_id, reason, revision):
+            return ExchangeHistoryReplay(work, key, actor_id, reason, revision,
+                posting=trading_posting, reversals=trading_reversals, trade_queries=trading_queries,
+                reverse_exchange=trading.reverse, post_exchange=trading.post)
+
         trading = TradingService(
-            OperationPostingService(trading_uow),
-            ReversalService(trading_uow),
+            trading_posting,
+            trading_reversals,
             trading_queries,
             trading_uow,
+            history_replay=history_replay,
         )
         conversions = WalletConversionService(
             OperationPostingService(client_uow), client_queries, trading_queries
@@ -155,7 +164,7 @@ class ApplicationContainer:
         expense_queries = ExpenseQueries(pool)
         expenses = ExpenseService(
             OperationPostingService(expense_uow), ReversalService(expense_uow), expense_queries, uow_factory=expense_uow,
-            history_replay=lambda work, key, actor, reason, revision: ExchangeHistoryReplay(trading, work, key, actor, reason, revision)
+            history_replay=history_replay,
         )
 
         def profit_uow():

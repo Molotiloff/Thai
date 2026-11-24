@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from domain import DealStatus, DomainStateError
 from domain.deal_policy import exchange_type
@@ -36,6 +37,9 @@ from services.unit_of_work import UnitOfWorkFactory
 
 from .balance_service import ExchangeBalanceService
 from .workflow_policy import tracked_exchange_currencies
+
+if TYPE_CHECKING:
+    from services.exchange.history import ExchangeHistoryReplay
 
 log = logging.getLogger(__name__)
 
@@ -293,10 +297,12 @@ def _mutable_codes(codes: frozenset[str] | None) -> set[str] | None:
 
 
 class TradingService:
-    def __init__(self, posting, reversals, queries: TradingReadPort, uow_factory):
+    def __init__(self, posting, reversals, queries: TradingReadPort, uow_factory, *,
+                 history_replay: Callable[[TradingUnitOfWork, str, int, str, int | None], ExchangeHistoryReplay]):
         self._posting, self._reversals, self._queries = posting, reversals, queries
         self._commands = MetadataCommandService(uow_factory)
         self._factory = uow_factory
+        self._history_replay = history_replay
 
     async def create(
         self, *, key, actor_id, client_id, mode, receive, pay, external_reference=None, comment="",
@@ -659,7 +665,6 @@ class TradingService:
 
         async def action(work):
             uow = cast(TradingUnitOfWork, work)
-            from services.exchange.history import ExchangeHistoryReplay
 
             await uow.expenses.lock_history()
             await uow.journal.lock_posting_period(profit_revision_id=profit_revision_id)
@@ -675,7 +680,7 @@ class TradingService:
             current = await validate_current(uow)
             await uow.trades.reversible(current['id'])
             original, tail = await uow.history.tail(current['operation_id'], ())
-            replay = ExchangeHistoryReplay(self, uow, key, actor_id, reason, profit_revision_id)
+            replay = self._history_replay(uow, key, actor_id, reason, profit_revision_id)
             replay.validate(tail)
             await replay.rewind(tail)
             reversed_operation = await self.reverse(key=key+':reversal', actor_id=actor_id,
@@ -708,7 +713,6 @@ class TradingService:
             'effective_at':effective_at, 'reason':reason, 'profit_revision_id':profit_revision_id}
         async def action(work):
             uow = cast(TradingUnitOfWork, work)
-            from services.exchange.history import ExchangeHistoryReplay
 
             # Same global valuation lock as ordinary postings: discover the full tail
             # before changing any account, and prevent a concurrent new dependency.
@@ -728,7 +732,7 @@ class TradingService:
                 extra_accounts += (kt['wallet'],)
             original_operation, tail = await uow.history.tail(current['operation_id'], extra_accounts)
             ordering = original_operation['ordering']
-            replay = ExchangeHistoryReplay(self, uow, key, actor_id, reason, profit_revision_id)
+            replay = self._history_replay(uow, key, actor_id, reason, profit_revision_id)
             replay.validate(tail)
             await replay.rewind(tail)
             async def validate_current(locked):

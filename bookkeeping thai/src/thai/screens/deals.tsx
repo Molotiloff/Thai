@@ -2,7 +2,7 @@ import {redirect} from 'next/navigation';
 import {DealsView} from '@/components/deals/DealsView';
 import {NewDealView} from '@/components/deals/new/NewDealView';
 import {OPERATIONS,operationLabel,type Workspace} from '../deals/model';
-import {counterpartyFields,type ClientOption} from '../deals/specs';
+import {counterpartyFields} from '../deals/specs';
 import {activeClientOptions,apiGet,session} from '../server';
 import {OperationForms} from '../forms';
 import {type FormSpec} from '../form-specs';
@@ -28,8 +28,7 @@ export async function DealDetail({params}:{params:Promise<{id:string}>}){
  if(data.kind==='manual_profit'){
   const active=data.effective_status==='posted';const specs:FormSpec[]=[];
   if(active){
-   const clients:ClientOption[]=[];let after='';
-   do {const page=await apiGet<Row>('/clients?limit=100'+(after?'&after_id='+after:''));clients.push(...rows(page.items).filter(c=>c.is_active).map(c=>[String(c.id),String(c.name)] as const));after=page.next_after_id?String(page.next_after_id):'';}while(after);
+   const clients=await activeClientOptions();
    specs.push({title:'Исправить прибыль',path:`/deals/${id}/profit-correction`,permission:'finance.reverse',
     note:'Исходная запись и её исправление сохраняются в истории. Закрытый месяц требует ревизии.',fields:[
      {name:'expected_deal_id',label:'Текущая версия',kind:'id',value:id,readOnly:true},

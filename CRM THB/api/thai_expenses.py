@@ -6,6 +6,15 @@ from pydantic import Field, StrictStr
 from api.thai_capital import CommandRequest
 from api.thai_clients import DirectoryRequest
 from api.thai_common import business_day, operation_response, response
+from api.thai_expense_dto import (
+    ExpenseCategory,
+    ExpenseDebts,
+    ExpenseDetail,
+    ExpensePage,
+    ExpenseParticipant,
+    ExpenseRevision,
+    ExpenseStatement,
+)
 from services.expenses.service import month
 
 
@@ -69,11 +78,11 @@ def register_expense_routes(app, container, actor):
             "effective_at": payload.effective_at,
         }
 
-    @app.get("/api/v1/expense-categories")
+    @app.get("/api/v1/expense-categories", response_model=list[ExpenseCategory])
     async def categories(user: int = Depends(actor)):
         return response(await container.expense_queries.categories())
 
-    @app.get("/api/v1/expense-participants")
+    @app.get("/api/v1/expense-participants", response_model=list[ExpenseParticipant])
     async def participants(user: int = Depends(actor)):
         return response(await container.expense_queries.participants())
 
@@ -82,7 +91,7 @@ def register_expense_routes(app, container, actor):
         return response(await container.expenses.bind_participant(
             key=payload.idempotency_key, actor_id=user, code=code, client_id=payload.client_id))
 
-    @app.get("/api/v1/expenses")
+    @app.get("/api/v1/expenses", response_model=ExpensePage)
     async def expenses(
         period: date | None = None,
         participant_id: int | None = Query(None,gt=0),
@@ -105,11 +114,11 @@ def register_expense_routes(app, container, actor):
             )
         )
 
-    @app.get("/api/v1/expenses/{expense_id}")
+    @app.get("/api/v1/expenses/{expense_id}", response_model=ExpenseDetail)
     async def detail(expense_id: int, user: int = Depends(actor)):
         return response(await container.expense_queries.detail(expense_id))
 
-    @app.get("/api/v1/expense-debts")
+    @app.get("/api/v1/expense-debts", response_model=ExpenseDebts)
     async def debts(
         participant_id: int | None = Query(None, gt=0),
         currency: str | None = None,
@@ -144,7 +153,7 @@ def register_expense_routes(app, container, actor):
             )
         )
 
-    @app.get("/api/v1/expense-statements")
+    @app.get("/api/v1/expense-statements", response_model=ExpenseStatement)
     async def statement(
         period: date, revision: int | None = Query(None, gt=0), user: int = Depends(actor)
     ):
@@ -172,6 +181,6 @@ def register_expense_routes(app, container, actor):
             )
         )
 
-    @app.get("/api/v1/expense-periods/revisions")
+    @app.get("/api/v1/expense-periods/revisions", response_model=list[ExpenseRevision])
     async def revisions(period: date, user: int = Depends(actor)):
         return response(await container.expense_queries.revisions(month(period)))

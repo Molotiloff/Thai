@@ -1,6 +1,5 @@
 """Cancelling an old exchange must equal a history where it never occurred."""
 from datetime import timedelta
-from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -69,9 +68,20 @@ async def test_cancel_failure_rolls_back_whole_history(finance,monkeypatch):
     before_profit = await total_profit(finance)
     before_operations = await finance['pool'].fetchval('SELECT count(*) FROM financial_operations')
     before_outbox = await finance['pool'].fetchval('SELECT count(*) FROM telegram_outbox')
-    monkeypatch.setattr(finance['app'].trading,'post',AsyncMock(side_effect=InvalidPosting('replay failed')))
+    post = finance['app'].trading.post
+    attempts = 0
+
+    async def fail_after_first_replay(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            raise InvalidPosting('replay failed')
+        return await post(**kwargs)
+
+    monkeypatch.setattr(finance['app'].trading,'post',fail_after_first_replay)
     with pytest.raises(InvalidPosting,match='replay failed'):
         await finance['app'].trading.cancel(**common(finance,'cancel'),deal_id=root,reason='Test rollback')
+    assert attempts == 2
     assert await wallet_state(finance,clients) == before_wallets
     assert await total_profit(finance) == before_profit
     assert await finance['pool'].fetchval('SELECT count(*) FROM financial_operations') == before_operations

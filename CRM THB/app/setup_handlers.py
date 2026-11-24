@@ -1,4 +1,5 @@
 """Register the copied CRM handlers against the branch's shared services."""
+import logging
 import re
 import shlex
 from contextlib import suppress
@@ -14,6 +15,8 @@ from services.accounting.profit_command import telegram_words
 from services.finance.outbox import DeliveryError
 from services.payment_watch.service import PaymentMonitor
 from services.payment_watch.tronscan_gateway import TronscanGateway, TronscanSettings
+
+log = logging.getLogger(__name__)
 
 
 def setup_message_archive(dispatcher,bot,container,config):
@@ -39,10 +42,6 @@ def setup_message_archive(dispatcher,bot,container,config):
         workers=config.message_archive_download_workers,queue_size=config.message_archive_download_queue_size)
     metrics=ArchiveRuntimeMetrics()
     service=MessageArchiveService(repo=repository,attachment_scheduler=media,metrics=metrics)
-    incoming=IncomingMessageArchiveMiddleware(service)
-    for name in ('message','edited_message','channel_post','edited_channel_post','business_message','edited_business_message'):
-        dispatcher.observers[name].outer_middleware(incoming)
-    bot.session.middleware(OutgoingMessageArchiveMiddleware(service))
     handler=MessageArchiveHandler(bot=bot,repo=repository,client_repo=container.client_queries,
         manager_repo=container.client_queries,admin_chat_id=config.admin_chat_id,
         authorize=container.client_queries.is_manager,export_workers=config.message_archive_export_workers,
@@ -50,6 +49,10 @@ def setup_message_archive(dispatcher,bot,container,config):
             part_size=config.message_archive_export_part_bytes,timezone='Asia/Bangkok'))
     lifecycle=MessageArchiveLifecycle(media=media,exports=handler,
         monitor=MessageArchiveMonitor(repo=repository,runtime=metrics,media_queue=media))
+    incoming=IncomingMessageArchiveMiddleware(service)
+    for name in ('message','edited_message','channel_post','edited_channel_post','business_message','edited_business_message'):
+        dispatcher.observers[name].outer_middleware(incoming)
+    bot.session.middleware(OutgoingMessageArchiveMiddleware(service))
     return handler,lifecycle
 
 
@@ -63,8 +66,7 @@ def setup_aml(container,config,gateway=None):
     return AMLHandler(container.client_queries,aml_queue_service=queue),queue
 
 
-def setup_handlers(*, dp, bot, container, ignore_chat_ids=None):
-    del ignore_chat_ids
+def setup_handlers(*, dp, bot, container):
     config=container.config
     if config is None:
         raise RuntimeError('ApplicationContainer requires configuration for Telegram startup')
@@ -73,7 +75,10 @@ def setup_handlers(*, dp, bot, container, ignore_chat_ids=None):
     services.payment_watch_poller=PaymentMonitor(container.payment_watches,services.payment_watch_gateway)
     archive_handler=None
     if config.message_archive_enabled:
-        archive_handler,services.message_archive=setup_message_archive(dp,bot,container,config)
+        try:
+            archive_handler,services.message_archive=setup_message_archive(dp,bot,container,config)
+        except OSError:
+            log.exception('Message archive unavailable: could not initialize storage')
     aml_handler,services.aml_queue_service=setup_aml(container,config,services.payment_watch_gateway)
     commands=ThaiTelegramCommands(container,config)
     services.tg_outbox_worker=container.outbox_dispatcher(ThaiTelegramDelivery(container,bot,config.request_chat_id))

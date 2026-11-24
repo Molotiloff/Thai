@@ -62,7 +62,7 @@ export function PeriodFilter({ value, extra }: { value: string; extra?: ReactNod
   </form>;
 }
 
-export interface Column { key: string; title: string; href?: string; amount?: boolean }
+export interface Column<Key extends string = string> { key: Key; title: string; href?: string; amount?: boolean }
 function cellContent(value: unknown, column: Column): ReactNode {
   if (column.amount) return <span className={/^-\d/.test(String(value)) ? styles.negative : undefined}>{money(value)}</span>;
   const raw = text(value);

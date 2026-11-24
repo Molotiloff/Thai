@@ -12,7 +12,14 @@ import asyncpg
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.base import BaseSession
-from aiogram.methods import AnswerCallbackQuery, GetFile, SendDocument, SendPhoto
+from aiogram.methods import (
+    AnswerCallbackQuery,
+    EditMessageText,
+    GetFile,
+    SendDocument,
+    SendMessage,
+    SendPhoto,
+)
 from aiogram.types import (
     CallbackQuery,
     Chat,
@@ -26,10 +33,11 @@ from aiogram.types import (
 )
 
 from app.setup_handlers import create_router, setup_message_archive
-from app.thai_telegram import ThaiTelegramCommands
+from app.thai_telegram import ThaiTelegramCommands, ThaiTelegramDelivery
+from db_asyncpg.repositories.message_archive import MessageArchiveRepo
 from domain.finance.models import IdempotencyConflict, InvalidPosting, PermissionDenied
 from services.xe_api import XEConvertResult
-from tests.thai.test_posting import INSTANT
+from tests.thai.test_posting import INSTANT, balance
 
 
 class RecordingSession(BaseSession):
@@ -235,6 +243,43 @@ async def test_archive_real_middleware_edits_media_and_admin_export(finance,tmp_
         await bot.session.close()
 
 
+async def test_archive_write_failure_preserves_cash_commands_and_outbox(finance,tmp_path,monkeypatch):
+    cash_chat = -123
+    config = replace(finance['config'], city_cash_chat_map={'тай': cash_chat},
+        message_archive_media_dir=str(tmp_path/'media'), message_archive_temp_dir=str(tmp_path/'exports'))
+    app = finance['app']
+    failed_write = AsyncMock(side_effect=RuntimeError('Archive storage unavailable'))
+    monkeypatch.setattr(app.message_archive, 'save_archive_message', failed_write)
+    session = RecordingSession()
+    bot = Bot('123456:TEST', session=session)
+    dp = Dispatcher()
+    handler, _ = setup_message_archive(dp, bot, app, config)
+    commands = ThaiTelegramCommands(app, config)
+    dp.include_router(create_router(commands, archive_handler=handler))
+
+    try:
+        await feed(dp, bot, message('/USDT 100', chat=cash_chat, mid=1))
+        assert await balance(finance, 'USDT') == (100, 100)
+        assert 'Общая касса' in session.sent[-1].text
+
+        # Queue another cash card without the handler's immediate delivery.
+        await commands.execute(telegram_user_id=12345, chat_id=cash_chat, message_id=2,
+            text='/USDT 20', effective_at=INSTANT, chat_name='Касса Тай')
+        assert await balance(finance, 'USDT') == (120, 120)
+        assert len(session.sent) == 1
+        outbox = app.outbox_dispatcher(ThaiTelegramDelivery(app, bot, config.request_chat_id))
+        assert await outbox.run_once()
+        assert await outbox.run_once()
+        assert not await outbox.run_once()
+        assert [type(method) for method in session.sent] == [SendMessage, EditMessageText, SendMessage]
+        assert 'Общая касса' in session.sent[-1].text
+        assert await finance['pool'].fetchval("SELECT count(*) FROM telegram_outbox WHERE status='sent'") == 2
+        assert await finance['pool'].fetchval('SELECT count(*) FROM message_archive_messages') == 0
+        assert failed_write.await_count == 4
+    finally:
+        await bot.session.close()
+
+
 async def test_manager_command_audit_roles_retry_and_revocation(finance):
     app=finance['app']
     commands=ThaiTelegramCommands(app,replace(finance['config'],admin_chat_id=-900))
@@ -372,24 +417,43 @@ async def test_aml_existing_queue_and_handler_with_mock_checker(finance,tmp_path
         await bot.session.close()
 
 
-async def test_existing_bot_app_run_starts_and_cleans_up_setup_handlers(finance,tmp_path,monkeypatch):
+@pytest.mark.parametrize('archive_state', ['enabled', 'disabled', 'invalid_storage', 'recovery_error'])
+async def test_existing_bot_app_run_starts_and_cleans_up_setup_handlers(finance,tmp_path,monkeypatch,caplog,archive_state):
     from types import SimpleNamespace
 
     import app.setup_handlers
     import bot_app
+    archive_running = archive_state in {'enabled', 'recovery_error'}
+    export_path = tmp_path/'exports'
+    if archive_state == 'invalid_storage':
+        export_path.touch()
+    if archive_state == 'recovery_error':
+        monkeypatch.setattr(MessageArchiveRepo, 'list_pending_archive_attachments',
+            AsyncMock(side_effect=RuntimeError('Cannot read pending media')))
     config=replace(finance['config'],bot_token='123456:TEST',api_enabled=False,
-        message_archive_media_dir=str(tmp_path/'media'),message_archive_temp_dir=str(tmp_path/'exports'))
+        message_archive_enabled=archive_state != 'disabled',
+        message_archive_media_dir=str(tmp_path/'media'),message_archive_temp_dir=str(export_path))
     gateway=SimpleNamespace(aclose=AsyncMock())
     monkeypatch.setattr(app.setup_handlers,'TronscanGateway',lambda **kwargs:gateway)
     monkeypatch.setattr(bot_app,'create_pool',AsyncMock(return_value=finance['pool']))
     close=AsyncMock()
     monkeypatch.setattr(bot_app,'close_pool',close)
+    session=RecordingSession()
+    monkeypatch.setattr(bot_app,'Bot',lambda token: Bot(token,session=session))
     application=bot_app.BotApp(config)
     async def poll(bot,**kwargs):
         assert not kwargs['close_bot_session']
-        assert 'edited_message' in kwargs['allowed_updates']
+        assert ('edited_message' in kwargs['allowed_updates']) is archive_running
         await application._on_startup()
         assert application.services._supervisor.running
+        assert application.services.tg_outbox_worker.running
+        assert (application.services.message_archive is not None) is archive_running
+        await feed(application.dp,bot,message('/whoami',mid=1))
+        assert '12345' in session.sent[-1].text
+        if not archive_running:
+            await feed(application.dp,bot,message('/сообщение Клиент A',mid=2))
+            assert 'Архивирование отключено' in session.sent[-1].text
+        assert await finance['pool'].fetchval('SELECT count(*) FROM message_archive_messages') == (2 if archive_running else 0)
         raise RuntimeError('Test polling stopped')
     monkeypatch.setattr(application.dp,'start_polling',poll)
     with pytest.raises(RuntimeError,match='Test polling stopped'):
@@ -397,6 +461,11 @@ async def test_existing_bot_app_run_starts_and_cleans_up_setup_handlers(finance,
     assert application.services._supervisor is None
     assert not application.services.tg_outbox_worker.running
     assert not application.services.payment_watch_poller.running
-    assert application.services.message_archive._running is False
+    if archive_running:
+        assert application.services.message_archive._running is False
+    if archive_state == 'invalid_storage':
+        assert 'Message archive unavailable: could not initialize storage' in caplog.text
+    if archive_state == 'recovery_error':
+        assert 'Failed to recover pending message archive media' in caplog.text
     gateway.aclose.assert_awaited_once()
     close.assert_awaited_once_with(finance['pool'])

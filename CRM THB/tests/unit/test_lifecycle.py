@@ -302,24 +302,21 @@ async def test_async_server_adapter_cancels_server_after_shutdown_timeout() -> N
     assert lifecycle.running is False
 
 
-def test_runtime_supervises_all_background_components() -> None:
-    components = [RecordingLifecycle(str(index), []) for index in range(7)]
+async def test_runtime_supervises_configured_telegram_components_in_order() -> None:
+    events = []
     runtime = BotRuntimeServices(
-        daily_balances_scheduler=components[0],
-        best_change_month_report_scheduler=components[1],
-        aml_queue_service=components[2],  # type: ignore[arg-type]
-        payment_watch_poller=components[3],  # type: ignore[arg-type]
-        tg_outbox_worker=components[4],  # type: ignore[arg-type]
-        market_ws_service=components[5],  # type: ignore[arg-type]
-        client_invite_link_backfill=components[6],  # type: ignore[arg-type]
+        payment_watch_poller=RecordingLifecycle("payments", events),
+        aml_queue_service=RecordingLifecycle("aml", events),
+        tg_outbox_worker=RecordingLifecycle("outbox", events),
+        message_archive=RecordingLifecycle("archive", events),
     )
 
-    assert [component.name for component in runtime._lifecycle_components()] == [
-        "Daily balances scheduler",
-        "BestChange month report scheduler",
-        "Payment watch poller",
-        "AML queue service",
-        "Telegram outbox worker",
-        "Client invite-link backfill",
-        "Rapira websocket service",
+    await runtime.start()
+    await runtime.start()
+    await runtime.stop()
+    await runtime.stop()
+
+    assert events == [
+        "start:payments", "start:aml", "start:outbox", "start:archive",
+        "stop:archive", "stop:outbox", "stop:aml", "stop:payments",
     ]

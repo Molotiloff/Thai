@@ -59,6 +59,12 @@ class ClientQueries:
             WHERE ($1::bigint IS NULL OR c.id>$1) ORDER BY c.id LIMIT $2
         """, after_id, limit)]
 
+    async def active_options(self, *, group_code: str | None = None) -> list[dict]:
+        return [dict(row) for row in await self._pool.fetch("""
+            SELECT c.id,p.name FROM clients c JOIN parties p ON p.id=c.party_id
+            WHERE c.is_active AND ($1::text IS NULL OR c.group_code=$1) ORDER BY c.id
+        """, group_code)]
+
     async def workspace(self, client_id=None):
         """Consistent customer directory with ledger valuations, without per-client requests."""
         async with self._pool.acquire() as db, db.transaction(isolation='repeatable_read', readonly=True):

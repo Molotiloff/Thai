@@ -75,7 +75,16 @@ jobs:
           node-version: '22'
           cache: pnpm
           cache-dependency-path: 'bookkeeping thai/pnpm-lock.yaml'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 'CRM THB/requirements.txt'
+      - run: python -m pip install -r '../CRM THB/requirements.txt' 'pydantic==2.11.10'
       - run: pnpm install --frozen-lockfile
+      - run: pnpm run generate:api --check
+        env:
+          THAI_API_PYTHON: python
       - run: pnpm run typecheck
       - run: pnpm exec eslint . --max-warnings 0
       - run: pnpm run test:forms

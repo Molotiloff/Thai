@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.thai_russian_commands import INSTRUMENTS
 from handlers.wallets import WalletsHandler
 from services.wallets.command_parser import WalletCommandParser
 
@@ -85,17 +86,21 @@ def test_partner_usdt_send_requires_positive_amount(command: str) -> None:
 @pytest.mark.parametrize(
     ("command", "amount", "currency", "recipient"),
     [
-        ("/перевод 1000 Иван Иванов", Decimal("1000"), "RUB", "Иван Иванов"),
+        ("/перевод 1к Иван Иванов", Decimal("1000"), "THB_CASH", "Иван Иванов"),
+        ('/перевод "1000 + 500" безнал Имя чата', Decimal("1500"), "THB_BANK", "Имя чата"),
+        ("/перевод 10 USDW Имя чата", Decimal("10"), "USD_WH", "Имя чата"),
+        ("/перевод 10 RUB Имя чата", Decimal("10"), "RUB", "Имя чата"),
         ("/перевод 2,50 USDT Клиент А", Decimal("2.50"), "USDT", "Клиент А"),
+        ("/перевод 1,123456 USDT Имя чата", Decimal("1.123456"), "USDT", "Имя чата"),
     ],
 )
 def test_parse_client_transfer(
     command: str, amount: Decimal, currency: str, recipient: str
 ) -> None:
-    assert WalletsHandler._parse_transfer(command) == (amount, currency, recipient)
+    assert WalletsHandler._parse_transfer(command, aliases=INSTRUMENTS) == (amount, currency, recipient)
 
 
 @pytest.mark.parametrize("command", ["/перевод", "/перевод 0 Иван", "/перевод abc Иван"])
 def test_invalid_client_transfer(command: str) -> None:
     with pytest.raises(ValueError):
-        WalletsHandler._parse_transfer(command)
+        WalletsHandler._parse_transfer(command, aliases=INSTRUMENTS)

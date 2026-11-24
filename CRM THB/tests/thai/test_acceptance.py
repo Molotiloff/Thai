@@ -227,8 +227,9 @@ async def test_blank_database_month_payout_fifo_rebuild_and_backup_restore(finan
         await maintenance.restore(backup, "crm_thai_unused_target")
 
 
+@pytest.mark.parametrize("api_only", [False, True])
 async def test_runtime_starts_with_only_thai_config_and_no_external_services(
-    finance, tmp_path, monkeypatch
+    finance, tmp_path, monkeypatch, api_only
 ):
     from httpx import ASGITransport, AsyncClient
 
@@ -242,7 +243,7 @@ async def test_runtime_starts_with_only_thai_config_and_no_external_services(
         + config.database_url
         + "\nCRM_JWT_SECRET="
         + config.jwt_secret
-        + "\n"
+        + ("\nBOT_TOKEN=123456:TEST\n" if api_only else "\n")
     )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DATABASE_URL", "postgresql://legacy:unused@127.0.0.1:5432/forbidden")
@@ -270,5 +271,7 @@ async def test_runtime_starts_with_only_thai_config_and_no_external_services(
     monkeypatch.setattr(bot_app.uvicorn, "Server", Server)
     monkeypatch.setattr(bot_app, "Bot", forbidden)
     monkeypatch.setattr(app.setup_handlers, "TronscanGateway", forbidden)
-    await bot_app.BotApp(Config.from_env()).run()
+    loaded_config = Config.from_env()
+    assert bool(loaded_config.bot_token) is api_only
+    await bot_app.BotApp(loaded_config, api_only=api_only).run()
     assert observed == [True]

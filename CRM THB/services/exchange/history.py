@@ -6,10 +6,12 @@ Business allocations which cannot be replayed safely remain explicit blockers.
 """
 
 import hashlib
+from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 
 from domain.accounting_policy import calculate_best_change
-from domain.finance.models import ReversalBlocked, canonical_json, decimal
+from domain.finance.models import PostedOperation, ReversalBlocked, canonical_json, decimal
 from services.accounting.manual_cash_service import ManualCashService
 from services.accounting.profit_service import ProfitService
 from services.best_change.service import BestChangeLedgerService
@@ -17,14 +19,30 @@ from services.clients.adjustments import WalletAdjustmentService
 from services.clients.conversions import WalletConversionService
 from services.clients.transfers import ClientWalletTransferService
 from services.clients.wallets import WalletCashService
+from services.exchange.ledger import TradingReadPort, TradingUnitOfWork
 from services.expenses.service import ExpenseService
-from services.finance.posting import CallbackDocument, CashTransferService
+from services.finance.posting import (
+    CallbackDocument,
+    CashTransferService,
+    OperationPostingService,
+    ReversalService,
+)
 
 
 class SilentOutbox:
     async def enqueue(self, operation):
         # Replay changes valuation, not the fact of a payment or client notification.
         pass
+
+
+@contextmanager
+def _without_posting_notifications(work: TradingUnitOfWork):
+    original_outbox = work.outbox
+    work.outbox = SilentOutbox()
+    try:
+        yield
+    finally:
+        work.outbox = original_outbox
 
 
 class HistoricalPosting:
@@ -63,8 +81,18 @@ class HistoricalPosting:
 
 
 class ExchangeHistoryReplay:
-    def __init__(self, trading, work, key, actor_id, reason, profit_revision_id):
-        self.trading, self.work = trading, work
+    def __init__(
+        self, work: TradingUnitOfWork, key: str, actor_id: int, reason: str, profit_revision_id: int | None, *,
+        posting: OperationPostingService, reversals: ReversalService, trade_queries: TradingReadPort,
+        reverse_exchange: Callable[..., Awaitable[PostedOperation]],
+        post_exchange: Callable[..., Awaitable[PostedOperation]],
+    ):
+        self.work = work
+        self._posting = posting
+        self._reversals = reversals
+        self._trade_queries = trade_queries
+        self._reverse_exchange = reverse_exchange
+        self._post_exchange = post_exchange
         self.key = 'history:' + hashlib.sha256(key.encode()).hexdigest()[:32]
         self.actor_id, self.reason = actor_id, reason
         self.profit_revision_id = profit_revision_id
@@ -103,19 +131,17 @@ class ExchangeHistoryReplay:
                     raise ReversalBlocked(f"Условия BestChange №{deal['id']} требуют отдельной ревизии")
 
     async def rewind(self, rows):
-        original_outbox = self.work.outbox
-        self.work.outbox = SilentOutbox()
-        try:
+        with _without_posting_notifications(self.work):
             # Actual posting order is important for exact inventory snapshot reversal.
             for row in sorted(rows, key=lambda item: item['id'], reverse=True):
                 common = self.common(row, 'reverse')
                 reason = f"Пересчёт истории: {self.reason}"
                 if row['kind'] == 'expense':
-                    await ExpenseService(self.trading._posting, self.trading._reversals,
+                    await ExpenseService(self._posting, self._reversals,
                         self.work.history.expense_queries).reverse(**common,
                         operation_id=row['id'], reason=reason, work=self.work)
                 elif row['kind'] == 'best_change':
-                    await ProfitService(self.trading._posting, self.trading._reversals,
+                    await ProfitService(self._posting, self._reversals,
                         self.work.history.profit_queries).reverse(**common,
                         operation_id=row['id'], reason=reason, work=self.work)
                 elif row['kind'] == 'fx_trade':
@@ -125,17 +151,15 @@ class ExchangeHistoryReplay:
                     for name in ('comment', 'presentation', 'counterparty_client_id', 'counterparty_spread'):
                         if name in attributes:
                             replacement[name] = attributes[name]
-                    await self.trading.reverse(**common, deal_id=row['deal']['id'],
+                    await self._reverse_exchange(**common, deal_id=row['deal']['id'],
                         replacement=replacement, reason=reason, work=self.work)
                     current = await self.work.trades.exchange_current(row['deal']['id'])
                     self.replacements[row['id']] = current['id']
                 else:
                     common.pop('profit_revision_id')
-                    await self.trading._reversals.reverse(**common, original_id=row['id'],
+                    await self._reversals.reverse(**common, original_id=row['id'],
                         reason=reason, details={'profit_revision_id': self.profit_revision_id,
                             'historical_replay': True}, work=self.work)
-        finally:
-            self.work.outbox = original_outbox
 
     def common(self, row, suffix):
         return {'key': f"{self.key}:{row['id']}:{suffix}", 'actor_id': self.actor_id,
@@ -145,9 +169,7 @@ class ExchangeHistoryReplay:
     async def replay(self, rows, original_id, replacement_id):
         result = []
         operation_ids = {original_id: replacement_id}
-        original_outbox = self.work.outbox
-        self.work.outbox = SilentOutbox()
-        try:
+        with _without_posting_notifications(self.work):
             for row in rows:
                 common = self.common(row, 'post')
                 details = row['details']
@@ -155,9 +177,9 @@ class ExchangeHistoryReplay:
                 # disappears, while references to surviving/replayed sources remain.
                 dependencies = tuple(mapped for source in row['dependencies']
                     if (mapped := operation_ids.get(source, source)) is not None)
-                posting = HistoricalPosting(self.trading._posting, self.work, row, self.key, dependencies)
+                posting = HistoricalPosting(self._posting, self.work, row, self.key, dependencies)
                 if row['kind'] == 'expense':
-                    operation = await ExpenseService(posting, self.trading._reversals,
+                    operation = await ExpenseService(posting, self._reversals,
                         self.work.history.expense_queries).record(**common,
                         category_id=details['category_id'], instrument=details['instrument'],
                         amount=details['amount'], quoted_rate=details['rate'], payer=details['payer'],
@@ -169,7 +191,7 @@ class ExchangeHistoryReplay:
                     if bindings['daniyar_balance']['ledger_account_id'] != row['deal']['daniyar_account_id']:
                         raise ReversalBlocked('Получатель доли BestChange изменился; нужна отдельная ревизия')
                     operation = await BestChangeLedgerService(posting,
-                        self.work.history.profit_queries, self.trading._queries).record(**common,
+                        self.work.history.profit_queries, self._trade_queries).record(**common,
                         operation=details['operation'], quantity=details['quantity'],
                         market_rate=details['market_rate'], client_rate=details['client_rate'],
                         thb_instrument=details['thb_instrument'], mode=details['mode'],
@@ -179,7 +201,7 @@ class ExchangeHistoryReplay:
                 elif row['kind'] == 'fx_trade':
                     deal_id = self.replacements[row['id']]
                     await self.work.trades.ready(deal_id)
-                    operation = await self.trading.post(**common, deal_id=deal_id, work=self.work,
+                    operation = await self._post_exchange(**common, deal_id=deal_id, work=self.work,
                         historical_order=row['ordering'], replayed_from=row['id'],
                         dependency_operation_ids=dependencies)
                     await self.work.history.exchange_revalued(deal_id, operation.id)
@@ -202,7 +224,7 @@ class ExchangeHistoryReplay:
                             quantity=details['quantity'], comment=details.get('comment', ''),
                             transfer_root_id=details.get('transfer_root_id', row['id']))
                     elif row['kind'] == 'wallet_conversion':
-                        operation = await WalletConversionService(posting, queries, self.trading._queries).transfer(
+                        operation = await WalletConversionService(posting, queries, self._trade_queries).transfer(
                             **common, client_id=details['client'], source_instrument=details['source'],
                             target_instrument=details['target'], quantity=details['quantity'],
                             fee=details['fee'],
@@ -222,6 +244,4 @@ class ExchangeHistoryReplay:
                             quantity=details['quantity'], comment=details.get('comment', ''))
                 operation_ids[row['id']] = operation.id
                 result.append({'original_operation_id': row['id'], 'operation_id': operation.id})
-        finally:
-            self.work.outbox = original_outbox
         return result

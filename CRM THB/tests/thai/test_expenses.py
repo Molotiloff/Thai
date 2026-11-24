@@ -202,7 +202,23 @@ async def test_api_bindings_usdt_default_rate_and_float_rejection(finance):
         response=await http.post("/api/v1/expenses",json=payload)
         assert response.status_code==200,response.text
         assert (await http.post("/api/v1/expenses",json=payload)).json()==response.json()
-        assert (await http.post("/api/v1/expenses",json={**payload,"amount":1000.1})).status_code==422
+        invalid=await http.post("/api/v1/expenses",json={**payload,"amount":1000.1})
+        assert invalid.status_code==422
+        assert invalid.json()["error"]["code"]=="invalid_request"
+        assert invalid.json()["error"]["fields"]==[{"path":["body","amount"],"type":"string_type"}]
+        expense=(await http.get("/api/v1/expenses")).json()["items"][0]
+        assert expense["amount"]=="1000.00000000"
+        details=(await http.get(f'/api/v1/expenses/{expense["id"]}')).json()
+        debts=(await http.get("/api/v1/expense-debts")).json()
+        pe_share=next(row for row in debts["expense_shares"] if row["code"]=="pe")
+        pe_wallet=next(row for row in debts["wallet_balances"] if row["code"]=="pe")
+        allocation=next(row for row in details["allocations"] if row["party_id"]==pe_share["party_id"])
+        assert allocation["amount_usdt"]=="500.00000000"
+        assert all(isinstance(value,str) for value in
+            (pe_share["expense_share_usdt"],pe_share["personally_paid_usdt"],pe_wallet["wallet_balance"]))
+        assert Decimal(pe_share["expense_share_usdt"])==500
+        assert Decimal(pe_share["personally_paid_usdt"])==1000
+        assert Decimal(pe_wallet["wallet_balance"])==1000
         binding=await http.post("/api/v1/expenses/participants/pe/binding",json={"idempotency_key":"bind-api","client_id":clients["pe"]})
         assert binding.status_code==200,binding.text
 

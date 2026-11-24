@@ -1,12 +1,29 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import NotRequired
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
+from typing_extensions import TypedDict
 
 from domain.finance.models import PostedOperation
+
+
+class ValidationField(TypedDict):
+    path: list[str | int]
+    type: str
+
+
+class ThaiError(TypedDict):
+    code: str
+    message: str
+    fields: NotRequired[list[ValidationField]]
+
+
+class ThaiErrorResponse(TypedDict):
+    error: ThaiError
 
 
 def business_day(effective_at: datetime, supplied: date | None) -> date:

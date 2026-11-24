@@ -44,7 +44,7 @@ class BotApp:
     async def _on_startup(self):
         if self.services is None:
             raise RuntimeError('Bot services are not initialized')
-        await self.services.start(bot=self.bot,config=self.config)
+        await self.services.start()
 
     async def _on_shutdown(self):
         if self.services is not None:
@@ -72,7 +72,7 @@ class BotApp:
                 logging.info('CRM API is starting (host=%s, port=%s)',self.config.api_host,self.config.api_port)
             if self.bot is not None:
                 allowed_updates=self.dp.resolve_used_update_types()
-                if self.config.message_archive_enabled:
+                if self.services.message_archive is not None:
                     allowed_updates=sorted(set(allowed_updates)|{'message','edited_message','channel_post',
                         'edited_channel_post','business_message','edited_business_message'})
                 await self.dp.start_polling(self.bot,allowed_updates=allowed_updates,close_bot_session=False)

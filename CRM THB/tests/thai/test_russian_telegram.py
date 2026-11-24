@@ -122,9 +122,7 @@ async def test_client_transfer_defaults_to_baht_and_keeps_cash(finance):
     await send('/регистрация Петров Иван',chat_id=-124)
     source=await finance['app'].trading_queries.client_by_chat(-123)
     target=await finance['app'].trading_queries.client_by_chat(-124)
-    amount,code,name=WalletsHandler._parse_transfer('/перевод 1к Петров Иван',
-        default_currency='THB_CASH',aliases=INSTRUMENTS,
-        allow_expressions=True)
+    amount,code,name=WalletsHandler._parse_transfer('/перевод 1к Петров Иван', aliases=INSTRUMENTS)
     assert code=='THB_CASH' and amount==1000 and name=='Петров Иван'
     await finance['app'].client_transfers.prepare_accounting(key='request',actor_id=finance['actor'],
         source_client_id=source,source_chat_id=-123,instrument=code,quantity=amount,
@@ -176,8 +174,8 @@ async def test_bot_authorization_auto_client_and_token_disabled(finance):
 
 
 async def test_cash_router_uses_existing_handler_and_authorized_status(finance, monkeypatch):
-    from aiogram import Bot
-    from aiogram.types import CallbackQuery, Chat, Message, User
+    from aiogram import Bot, Dispatcher
+    from aiogram.types import CallbackQuery, Chat, Message, Update, User
     commands, _ = bot(finance)
     telegram = Bot('123456:TEST')
     sent = AsyncMock(return_value=SimpleNamespace(message_id=900))
@@ -205,6 +203,14 @@ async def test_cash_router_uses_existing_handler_and_authorized_status(finance, 
     await router.callback_query.handlers[0].callback(callback)
     assert (await finance['app'].trading_queries.detail(1))['status']=='ready'
     assert await balance(finance,'THB_CASH')==(0,0)
+    dispatcher = Dispatcher()
+    dispatcher.include_router(router)
+    old_button = callback.model_copy(update={'data':'thai:cash:confirm'})
+    await dispatcher.feed_update(telegram, Update(update_id=1, callback_query=old_button))
+    assert 'Старая кнопка отключена' in answer.call_args.args[0]
+    assert answer.call_args.kwargs['show_alert']
+    assert (await finance['app'].trading_queries.detail(1))['status']=='ready'
+    assert await finance['pool'].fetchval('SELECT count(*) FROM financial_operations')==0
     await telegram.session.close()
 
 

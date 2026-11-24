@@ -6,6 +6,11 @@ from pydantic import BaseModel, Field, StrictStr
 from api.thai_common import business_day, operation_response, response
 
 
+class ClientOption(BaseModel):
+    id: int
+    name: str
+
+
 class DirectoryRequest(BaseModel):
     idempotency_key: str = Field(min_length=1, max_length=200)
 
@@ -145,6 +150,10 @@ def register_client_routes(app, container, actor):
     @app.get('/api/v1/clients/workspace')
     async def workspace(client_id: int | None = Query(None, gt=0), user: int = Depends(actor)):
         return response(await container.client_queries.workspace(client_id))
+
+    @app.get('/api/v1/clients/options', response_model=list[ClientOption])
+    async def client_options(group_code: str | None = Query(None, max_length=40), user: int = Depends(actor)):
+        return await container.client_queries.active_options(group_code=group_code)
 
     @app.put('/api/v1/clients/{client_id}/telegram-link')
     async def invite(client_id: int, payload: InviteRequest, user: int = Depends(actor)):

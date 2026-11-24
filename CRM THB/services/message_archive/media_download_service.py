@@ -75,35 +75,33 @@ class MediaDownloadService(AttachmentSchedulerPort):
         )
 
     async def _recover_pending_once(self) -> None:
-        pending = await self.repo.list_pending_archive_attachments(limit=self._queue.maxsize)
-        for row in pending:
-            attachment = SavedAttachment(
-                id=int(row["id"]),
-                attachment_type=str(row["attachment_type"]),
-                ordinal=int(row["ordinal"]),
-                telegram_file_id=row.get("telegram_file_id"),
-                source_path=None,
-                download_status=str(row["download_status"]),
-            )
-            if attachment.telegram_file_id:
-                self._schedule_nowait(
-                    _DownloadJob(
-                        attachment=attachment,
-                        chat_id=int(row["chat_id"]),
-                        message_id=int(row["telegram_message_id"]),
-                        sent_at=row["sent_at"],
-                    )
+        try:
+            pending = await self.repo.list_pending_archive_attachments(limit=self._queue.maxsize)
+            for row in pending:
+                attachment = SavedAttachment(
+                    id=int(row["id"]),
+                    attachment_type=str(row["attachment_type"]),
+                    ordinal=int(row["ordinal"]),
+                    telegram_file_id=row.get("telegram_file_id"),
+                    source_path=None,
+                    download_status=str(row["download_status"]),
                 )
+                if attachment.telegram_file_id:
+                    self._schedule_nowait(
+                        _DownloadJob(
+                            attachment=attachment,
+                            chat_id=int(row["chat_id"]),
+                            message_id=int(row["telegram_message_id"]),
+                            sent_at=row["sent_at"],
+                        )
+                    )
+        except Exception:
+            log.exception("Failed to recover pending message archive media")
 
     async def _recovery_loop(self) -> None:
         while not self._stopped:
             await asyncio.sleep(self.recovery_interval_seconds)
-            try:
-                await self._recover_pending_once()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                log.exception("Failed to recover pending message archive media")
+            await self._recover_pending_once()
 
     async def stop(self) -> None:
         self._stopped = True
