@@ -215,7 +215,30 @@ class ExpenseQueries:
                 WHERE ($1::bigint IS NULL OR p.party_id=$1) AND ($2::text IS NULL OR $2='USDT')
                 ORDER BY p.code
             """, participant_id, currency)
+            expense_shares = await connection.fetch("""
+                WITH active_expenses AS (
+                    SELECT e.id,e.payer_party_id,e.amount_usdt
+                    FROM expenses e JOIN active_financial_originals o ON o.id=e.operation_id
+                ), shares AS (
+                    SELECT a.party_id,sum(a.amount_usdt) AS amount_usdt
+                    FROM expense_allocations a JOIN active_expenses e ON e.id=a.expense_id
+                    GROUP BY a.party_id
+                ), payments AS (
+                    SELECT payer_party_id,sum(amount_usdt) AS amount_usdt
+                    FROM active_expenses WHERE payer_party_id IS NOT NULL
+                    GROUP BY payer_party_id
+                )
+                SELECT p.party_id,p.code,n.name,
+                    coalesce(shares.amount_usdt,0) AS expense_share_usdt,
+                    coalesce(payments.amount_usdt,0) AS personally_paid_usdt
+                FROM business_participants p JOIN parties n ON n.id=p.party_id
+                LEFT JOIN shares ON shares.party_id=p.party_id
+                LEFT JOIN payments ON payments.payer_party_id=p.party_id
+                WHERE p.code IN ('skyex','pe','daniyar') AND ($1::bigint IS NULL OR p.party_id=$1)
+                ORDER BY p.party_id
+            """, participant_id)
             return {
+                "expense_shares": [dict(row) for row in expense_shares],
                 "wallet_balances": [dict(row) for row in wallet_balances],
                 "obligations": [dict(row) for row in obligations],
                 "totals": [dict(row) for row in totals],

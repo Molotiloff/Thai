@@ -287,3 +287,26 @@ async def test_expense_telegram_failure_uses_retryable_transport_error(finance):
     with pytest.raises(DeliveryError,match="expense_delivery_failed"):
         await ThaiTelegramDelivery(finance["app"],bot,-999).deliver_expense(op.id)
     assert await finance["pool"].fetchval("SELECT count(*) FROM telegram_message_links WHERE operation_id=$1",op.id)==0
+
+
+async def test_expense_shares_exclude_cancelled_expenses_and_unrelated_wallet_movements(finance):
+    wallets = await bind_wallets(finance)
+    app = finance["app"]
+    await app.wallet_adjustments.adjust(**common(finance, "pe-wallet"), client_id=wallets["pe"],
+        instrument="USDT", quantity="-687")
+    await record(finance, key="shared", payer="skyex", amount="900", instrument="USDT", rate=None,
+        equal_split=True)
+    cancelled = await record(finance, key="cancelled", payer="pe", amount="100",
+        instrument="USDT", rate=None, shares={"common": "100"})
+    await app.expenses.reverse(**common(finance, "undo-cancelled"), operation_id=cancelled.id,
+        reason="Duplicate expense")
+    balances = await app.expense_queries.debts()
+    shares = {row["code"]: row for row in balances["expense_shares"]}
+    assert {code: row["expense_share_usdt"] for code, row in shares.items()} == {
+        "pe": 300, "skyex": 300, "daniyar": 300,
+    }
+    assert shares["pe"]["personally_paid_usdt"] == 0
+    assert shares["skyex"]["personally_paid_usdt"] == 900
+    assert {row["code"]: row["wallet_balance"] for row in balances["wallet_balances"]}["pe"] == -687
+    filtered = await app.expense_queries.debts(participant_id=shares["pe"]["party_id"])
+    assert filtered["expense_shares"] == [shares["pe"]]
