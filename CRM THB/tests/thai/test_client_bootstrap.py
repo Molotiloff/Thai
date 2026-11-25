@@ -131,7 +131,7 @@ async def test_public_help_wallet_and_keyboard_do_not_create_customer(finance):
     config = replace(finance['config'], usdt_wallet='TTestConfiguredWallet')
     commands = ThaiTelegramCommands(finance['app'], config)
     assert await commands.execute(telegram_user_id=999, chat_id=-999, message_id=1,
-                                  text='/кош', effective_at=INSTANT) == 'TTestConfiguredWallet'
+                                  text='/кош', effective_at=INSTANT) == '<code>TTestConfiguredWallet</code>'
     assert await finance['pool'].fetchval('SELECT count(*) FROM clients') == 0
 
 
@@ -149,3 +149,11 @@ async def test_router_uses_chat_title_and_restores_original_keyboard_behavior(fi
         await handler(message)
         assert isinstance(answer.call_args.kwargs['reply_markup'], markup)
     assert await finance['app'].client_queries.chat_name(-999) == 'Клиентский чат'
+
+    config = replace(finance['config'], usdt_wallet='TTestConfiguredWallet')
+    handler = create_router(ThaiTelegramCommands(finance['app'], config)).message.handlers[0].callback
+    for text in ('/кош', '/usdt'):
+        message = Message(message_id=2, date=INSTANT, text=text, from_user=user,
+                          chat=Chat(id=-999, type='supergroup', title='Клиентский чат'))
+        await handler(message)
+        answer.assert_awaited_with('<code>TTestConfiguredWallet</code>', parse_mode='HTML')

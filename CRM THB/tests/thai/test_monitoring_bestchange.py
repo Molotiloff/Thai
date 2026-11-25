@@ -187,7 +187,7 @@ async def test_otpr_and_bestchange_router_restore_original_commands_and_callback
     _,send=command_bot(finance)
     await send('/start',chat_name='Клиент')
     await send(f'/setwallet {OUR}',message_id=2)
-    assert await send('/кош')==OUR
+    assert await send('/кош') == f'<code>{OUR}</code>'
     commands=ThaiTelegramCommands(finance['app'],finance['config'])
     bot=Bot('123456:TEST')
     transport=telegram()

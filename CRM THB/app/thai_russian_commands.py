@@ -3,6 +3,7 @@
 import re
 from datetime import date
 from decimal import DecimalException
+from html import escape
 
 from domain.finance.models import InvalidPosting, rounded
 from services.accounting.profit_command import parse_profit_command
@@ -190,7 +191,10 @@ class RussianTelegramCommands:
         if command == "/info":
             return INFO
         if command == "/кош" or (command == "/usdt" and not args):
-            return await self._app.payment_wallet.current_accounting(self._config.usdt_wallet) or "Актуальный адрес USDT уточните у менеджера в этом чате."
+            address = await self._app.payment_wallet.current_accounting(self._config.usdt_wallet)
+            if address:
+                return f"<code>{escape(address)}</code>"
+            return "Актуальный адрес USDT уточните у менеджера в этом чате."
         if command == "/кнопки":
             return "Клавиатура включена. Выберите команду ниже:"
         if command == "/скрыть":

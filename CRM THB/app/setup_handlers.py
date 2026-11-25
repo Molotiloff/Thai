@@ -231,7 +231,11 @@ def create_router(commands, *, archive_handler=None, aml_handler=None):
             await message.answer(text, reply_markup=markup)
         elif command in ("/start", "/помоги", "/скрыть"):
             await message.answer(text, reply_markup=ReplyKeyboardRemove())
+        elif command == "/прибыль":
+            await message.answer(text, parse_mode=None)
+        elif command in ("/кош", "/usdt", "/кошелек", "/кошелёк", "/дай") and text.startswith("<code>"):
+            await message.answer(text, parse_mode="HTML")
         else:
-            await message.answer(text, **({'parse_mode':None} if command=='/прибыль' else {"parse_mode":"HTML"} if command in ("/кошелек", "/кошелёк", "/дай") and text.startswith("<code>") else {}))
+            await message.answer(text)
 
     return router
