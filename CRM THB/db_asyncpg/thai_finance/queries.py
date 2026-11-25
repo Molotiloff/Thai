@@ -148,7 +148,10 @@ class OutboxDeliveryRepository:
         row = await self._pool.fetchrow("""
             WITH candidate AS (
                 SELECT e.id FROM telegram_outbox e LEFT JOIN financial_operations o ON o.id=e.operation_id
-                WHERE (o.status='posted' OR (e.operation_id IS NULL AND e.event_type IN ('cash.request_changed','payment.watch_changed'))) AND (
+                WHERE (o.status='posted' OR (e.operation_id IS NULL AND e.event_type IN (
+                    'cash.request_changed','payment.watch_changed',
+                    'exchange.revalued','best_change.revalued','expense.revalued'
+                ))) AND (
                     (e.status IN ('pending','failed') AND e.available_at<=clock_timestamp())
                     OR (e.status='processing' AND e.lease_until<=clock_timestamp()))
                 ORDER BY e.available_at,e.id LIMIT 1 FOR UPDATE OF e SKIP LOCKED

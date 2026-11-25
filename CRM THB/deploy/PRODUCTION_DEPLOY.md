@@ -337,6 +337,9 @@ curl --noproxy '*' --fail https://thai-crm.work.gd/login
 
 ## 8. Backup, обновления и восстановление
 
+Пошаговое обновление существующей установки на совместимой ревизии `thai_0027`
+приведено в [инструкции выпуска после рефакторинга](thai/REFACTORING_RELEASE.md).
+
 От skyex-thai в backend current перед обновлением, с новым именем каждого backup:
 
 ```bash

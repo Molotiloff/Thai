@@ -169,7 +169,7 @@ class ThaiTelegramDelivery:
         self._cash_chat_ids=frozenset(cash_chat_ids if cash_chat_ids is not None else
             (container.config.cash_chat_ids if container.config is not None else ()))
 
-    async def deliver_exchange_request(self, deal_id, *, event=None, notify_act=True):
+    async def deliver_exchange_request(self, deal_id, *, event=None, notify_act=True, refresh_only=False):
 
         from telegram_adapters.exchange_keyboards import AiogramExchangeKeyboardPresenter
         context = await self._app.trading_queries.exchange_context(deal_id)
@@ -210,6 +210,8 @@ class ThaiTelegramDelivery:
                             SELECT t.message_id FROM telegram_deliveries t JOIN telegram_outbox e ON e.event_key=t.event_key
                             WHERE e.operation_id=$1 AND t.chat_id=$2 ORDER BY e.id LIMIT 1
                         """,current['root']['operation_id'],chat_id)
+                    if refresh_only and link is None:
+                        continue
                     message_id = await self._update_card(db,deal_id=root_id,chat_id=chat_id,text=text,
                         markup=markup,purpose='exchange_request' if request_card else 'exchange_client',link=link)
                     if event:
@@ -282,7 +284,7 @@ class ThaiTelegramDelivery:
     async def deliver(self, event):
         payload = json.loads(event.payload_json)
         if event.event_type == 'exchange.revalued':
-            await self.deliver_exchange_request(payload['deal_id'], event=event, notify_act=False)
+            await self.deliver_exchange_request(payload['deal_id'], event=event, notify_act=False, refresh_only=True)
             return
         if event.event_type == 'best_change.revalued':
             await self.deliver_best_change(payload['deal_id'], refresh_only=True)

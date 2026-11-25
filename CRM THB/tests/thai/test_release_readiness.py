@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from api.thai_finance import create_thai_finance_api
 from app.thai_maintenance import ThaiDatabaseMaintenance
 from tests.thai.test_acceptance import database_contents
+from tests.thai.test_expenses import bind_wallets
 from tests.thai.test_monitoring_bestchange import OUR
 from tests.thai.test_posting import fund
 from tests.thai.test_profit import configure
@@ -32,7 +33,8 @@ def checks(result):
 async def test_release_check_uses_read_only_snapshot_and_redacts_secrets(finance,tmp_path):
     config,path=settings(finance,tmp_path)
     buffer,dany=await configure(finance)
-    for client,chat in ((buffer,-100),(dany,-101)):
+    wallets=await bind_wallets(finance)
+    for client,chat in ((buffer,-100),(dany,-101),(wallets['skyex'],-102),(wallets['pe'],-103)):
         await finance['app'].clients.bind_chat(key=f'bind:{chat}',actor_id=finance['actor'],client_id=client,chat_id=chat)
     before=await database_contents(finance['pool'])
     report=await ThaiDatabaseMaintenance(config.database_url).check(config,frontend_env=path)

@@ -304,6 +304,23 @@ async def test_expired_outbox_lease_can_be_reclaimed_but_old_worker_cannot_ack(f
     assert await finance['pool'].fetchval('SELECT status FROM telegram_outbox') == 'sent'
 
 
+@pytest.mark.parametrize('event_type', ['exchange.revalued', 'best_change.revalued', 'expense.revalued'])
+async def test_outbox_claims_card_refresh_without_operation_id(finance, event_type):
+    from db_asyncpg.thai_finance.queries import OutboxDeliveryRepository
+
+    pool = finance['pool']
+    await pool.execute("""
+        INSERT INTO telegram_outbox(event_key,event_type,payload)
+        VALUES ('unknown','unknown','{}'), ('refresh',$1,'{}')
+    """, event_type)
+    repository = OutboxDeliveryRepository(pool)
+    refresh = await repository.claim()
+    assert refresh is not None and refresh.event_type == event_type
+    await repository.delivered(refresh)
+    assert await pool.fetchval("SELECT status FROM telegram_outbox WHERE event_key='refresh'") == 'sent'
+    assert await repository.claim() is None
+
+
 async def test_reversal_requires_dependent_operation_to_be_reversed_first(finance):
     original = await fund(finance)
     class DependentDocument:

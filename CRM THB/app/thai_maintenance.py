@@ -92,7 +92,8 @@ class ThaiDatabaseMaintenance:
                 add('administrators',admins>0,'Есть активный администратор/владелец из THAI_ADMIN_IDS')
                 bindings=await db.fetchval("""
                     SELECT count(*) FROM business_client_bindings b JOIN clients c ON c.id=b.client_id
-                    WHERE c.is_active AND EXISTS(SELECT 1 FROM client_chat_links l WHERE l.client_id=c.id AND l.is_active)
+                    WHERE b.purpose IN ('best_change_buffer','daniyar_balance') AND c.is_active
+                        AND EXISTS(SELECT 1 FROM client_chat_links l WHERE l.client_id=c.id AND l.is_active)
                 """)
                 add('business_chats',bindings==2,'BestChange и Баланс Данияр привязаны к активным клиентским чатам')
                 wallet=await db.fetchval("SELECT value #>> '{}' FROM crm_settings WHERE key='usdt_wallet'")

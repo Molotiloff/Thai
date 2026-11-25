@@ -182,10 +182,14 @@ async def test_historical_replay_refreshes_cards_without_duplicate_act_notice(fi
     await delivery.deliver(tail_event)
     sent = telegram.send_message.await_count
     await edit(commands)
+    await delivery.deliver(tail_event)
+    client_id = await finance['app'].trading_queries.client_by_chat(-123)
+    await finance['app'].clients.bind_chat(
+        key='new-chat', actor_id=finance['actor'], client_id=client_id, chat_id=-456,
+    )
     row = await finance['pool'].fetchrow("SELECT * FROM telegram_outbox WHERE event_type='exchange.revalued'")
     event = SimpleNamespace(key=row['event_key'], event_type=row['event_type'], payload_json=row['payload'])
     await delivery.deliver(event)
-    await delivery.deliver(tail_event)
     assert telegram.send_message.await_count == sent
     active = (await finance['app'].trading_queries.exchange_context(2))['active']['id']
     assert any(call.kwargs['reply_markup'].inline_keyboard[0][0].callback_data == f'req_cancel:2:{active}'
